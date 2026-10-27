@@ -1280,38 +1280,50 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
     function siteHost() {
       return String(Lampa.Storage.get('uakino_host', '') || DEFAULT_HOST).trim().replace(/\/+$/, '');
     }
-    function deviceError(net, a, c, url) {
+    function describe(a) {
       var status = a && a.status;
-      if (status === 403 || status === 503) return 'uakino заблокував запит (' + status + '). Спробуйте пізніше або інше дзеркало в налаштуваннях';
-      if (!status) {
-        var detail = a && (a.responseText || a.message || a.error);
-        if (detail && typeof detail === 'string') return 'немає відповіді від uakino: ' + detail.slice(0, 150);
-        return 'немає доступу до uakino з цього пристрою. У браузерній версії Lampa увімкніть режим «Через парсер»';
-      }
-      return (net.errorDecode ? net.errorDecode(a, c) : 'помилка') + ' — ' + url;
+      var text = a && (a.responseText || a.message || a.error);
+      if (text && typeof text === 'string') {
+        var title = text.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+        text = (title ? title[1] : text).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
+      } else text = '';
+      var head = status ? 'HTTP ' + status : "немає з'єднання";
+      if (/just a moment|attention required|cloudflare|ddos/i.test(text)) head += ' (захист Cloudflare)';
+      return head + (text ? ' «' + text + '»' : '');
     }
+    var preferred = null;
     function deviceFetch(url, o) {
       o = o || {};
+      var methods = [];
+      if (typeof new Lampa.Reguest()['native'] === 'function') methods.push('native');
+      methods.push('silent');
+      if (preferred && methods.indexOf(preferred) > 0) methods = [preferred].concat(methods.filter(function (m) {
+        return m !== preferred;
+      }));
+      var headers = {};
+      if (o.xhr) headers['X-Requested-With'] = 'XMLHttpRequest';
+      if (o.referer) headers.Referer = o.referer;
+      var errors = [];
       return new Promise(function (resolve, reject) {
-        var net = new Lampa.Reguest();
-        net.timeout(20000);
-        var headers = {};
-        if (o.xhr) headers['X-Requested-With'] = 'XMLHttpRequest';
-        if (o.referer) headers.Referer = o.referer;
-        var params = {
-          dataType: 'text',
-          headers: headers
-        };
-        var ok = function ok(text) {
-          resolve(typeof text === 'string' ? text : JSON.stringify(text));
-        };
-        var fail = function fail(a, c) {
-          var err = new Error(deviceError(net, a, c, url));
-          err.status = a && a.status;
-          reject(err);
-        };
-        var method = typeof net['native'] === 'function' ? 'native' : 'silent';
-        net[method](url, ok, fail, o.body || false, params);
+        function attempt(i) {
+          var method = methods[i];
+          var net = new Lampa.Reguest();
+          net.timeout(20000);
+          net[method](url, function (text) {
+            preferred = method;
+            resolve(typeof text === 'string' ? text : JSON.stringify(text));
+          }, function (a) {
+            errors.push((method === 'native' ? 'застосунок' : 'WebView') + ': ' + describe(a));
+            if (i + 1 < methods.length) return attempt(i + 1);
+            var err = new Error(errors.join(', '));
+            err.status = a && a.status;
+            reject(err);
+          }, o.body || false, {
+            dataType: 'text',
+            headers: headers
+          });
+        }
+        attempt(0);
       });
     }
     var client = null;

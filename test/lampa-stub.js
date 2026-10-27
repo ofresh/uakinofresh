@@ -94,6 +94,7 @@
       this.silent = go;
       this['native'] = function (url, ok, err, post, params) {
         window.__native = (window.__native || 0) + 1;
+        if (window.__nativeFail) return setTimeout(function () { err({ status: 500, responseText: '<html><title>Native failed</title></html>' }, 'error'); }, 0);
         go(url, ok, err, post, params);
       };
     }

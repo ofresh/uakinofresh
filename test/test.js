@@ -334,7 +334,7 @@ async function pluginFlow(mode) {
     page.on('pageerror', (e) => errors.push(e.message));
     await page.goto(base + '/health');
     await page.setContent('<div id="full"><div class="full-start-new__buttons"><div class="full-start__button selector view--torrent">Торренти</div></div></div>');
-    await page.evaluate((preset) => { window.__preset = preset; }, mode === 'direct' ? { uakino_host: up.base } : { uakino_mode: 'server' });
+    await page.evaluate(([preset, fail]) => { window.__preset = preset; window.__nativeFail = fail; }, [mode === 'server' ? { uakino_mode: 'server' } : { uakino_host: up.base }, mode === 'fallback']);
     await page.addScriptTag({ path: path.join(__dirname, 'lampa-stub.js') });
     await page.addScriptTag({ url: base + '/uakino.js' });
 
@@ -347,12 +347,12 @@ async function pluginFlow(mode) {
     const sel = await page.evaluate(() => ({ title: window.__select.title, items: window.__select.items.map((i) => [i.title, i.subtitle]) }));
     assert.strictEqual(sel.items.length, 3);
     assert.strictEqual(sel.items[0][0], 'Високий потенціал (Сезон 1) / High Potential (2024) [Скачати торент]');
-    if (mode === 'direct') assert.strictEqual(sel.items[0][1], '▲ 0 • ▼ 0');
+    if (mode !== 'server') assert.strictEqual(sel.items[0][1], '▲ 0 • ▼ 0');
     else assert.ok(/5\.86 KB • 3 файл\. • ▲ 0 • ▼ 0/.test(sel.items[0][1]), sel.items[0][1]);
 
     await page.evaluate(() => window.__select.onSelect(window.__select.items[1]));
     const started = await page.evaluate(() => window.__started);
-    if (mode === 'direct') {
+    if (mode !== 'server') {
       // .torrent качає TorrServer з домашньої мережі — посилання прямо на uakino.
       assert.strictEqual(started.element.Link, up.base + '/torrent/703633/' + encodeURIComponent('Високий потенціал (Сезон 1) 1080p.torrent'));
     } else {
@@ -404,6 +404,7 @@ async function pluginFlow(mode) {
     // У режимі «з пристрою» на парсер не йде жодного запиту про сайт.
     const natives = await page.evaluate(() => window.__native || 0);
     if (mode === 'direct') assert.ok(natives > 5, String(natives));
+    else if (mode === 'fallback') assert.strictEqual(natives, 1); // після першої невдачі — одразу WebView
     else assert.strictEqual(natives, 0);
   } finally {
     await browser.close();
@@ -414,6 +415,7 @@ async function pluginFlow(mode) {
 
 test('плагін Lampa (з пристрою): кнопки, торенти → Lampa.Torrent.start, онлайн → Lampa.Player', () => pluginFlow('direct'));
 test('плагін Lampa (через парсер): те саме через Worker/server.js', () => pluginFlow('server'));
+test('плагін Lampa (native не працює): автоматично через WebView', () => pluginFlow('fallback'));
 
 // ---------------- online ----------------
 
