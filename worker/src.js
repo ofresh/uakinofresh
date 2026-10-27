@@ -150,6 +150,14 @@ async function handle(req, env, ctx) {
       return new Response(code, { headers: { 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'max-age=300', ...CORS } });
     }
 
+    // Діагностика: з якої країни/IP Worker ходить на сайти (UAFlix показує плеєр гостям лише з UA).
+    if (url.pathname === '/where') {
+      const trace = await (await fetch('https://www.cloudflare.com/cdn-cgi/trace')).text();
+      const get = (k) => ((trace.match(new RegExp('^' + k + '=(.*)$', 'm')) || [])[1] || '');
+      const you = req.cf || {};
+      return json({ worker: { ip: get('ip'), country: get('loc'), datacenter: get('colo') }, you: { country: you.country || '', datacenter: you.colo || '' } });
+    }
+
     // Проксі для LG/браузера, де діє CORS (лише сайти-джерела й плеєри).
     if (url.pathname === '/proxy') {
       const r = await proxy(q, req.method === 'POST' ? await req.text() : '', fetch);
