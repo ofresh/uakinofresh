@@ -497,6 +497,22 @@ test('інші сайти: пошук, назви з карток, плеєри 
   const d2 = await fix.online.loadPage(p2[0].url);
   assert.deepStrictEqual(d2.items.map((i) => [i.group, i.stream.url, Object.keys(i.stream.quality)]), [['UAFlix', 'https://zetvideo.net/v/1080.m3u8', ['1080p', '720p']]]);
 
+  // UAFlix: трейлер + картки серій на окремих сторінках (і сезони на окремих сторінках).
+  const card = (s, e, label) => '<div class="video-item"><a class="vi-img" href="https://uafix.net/serials/tk/season-0' + s + '-episode-0' + e + '/"><div class="vi-desc"><div class="vi-title">Сезон ' + s + ' Серія ' + e + '</div><div class="vi-rate">' + label + '</div></div></a></div>';
+  SITES['https://uafix.net/serials/tk/'] = '<iframe src="https://www.youtube.com/embed/t"></iframe><span>пройдіть авторизацію</span>' +
+    card(2, 1, 'Українська') + card(2, 2, 'Іноземна мова') + '<a href="/serials/tk/sezon-1/">Сезон 1</a><a href="/serials/other/sezon-1/">чужий</a>';
+  SITES['https://uafix.net/serials/tk/sezon-1/'] = card(1, 1, '') + card(1, 2, 'Назва серії');
+  SITES['https://uafix.net/serials/tk/season-01-episode-02/'] = '<iframe src="https://www.youtube.com/embed/t"></iframe><div class="video-box"><iframe src="https://zetvideo.net/vod/55"></iframe></div>';
+  SITES['https://zetvideo.net/vod/55'] = '<script>new Playerjs({file:"[1080p]https://cdn.example/tk12.m3u8"})</script>';
+  const tk = await fix.online.loadPage('https://uafix.net/serials/tk/');
+  assert.deepStrictEqual(tk.items.map((i) => [i.season, i.episode, i.title]), [
+    [1, 1, 'Серія 1'], [1, 2, 'Серія 2 · Назва серії'], [2, 1, 'Серія 1 · Українська'], [2, 2, 'Серія 2 · Іноземна мова'],
+  ]);
+  const st = await fix.online.stream(tk.items[1].url, 'https://uafix.net/serials/tk/');
+  assert.strictEqual(st.url, 'https://cdn.example/tk12.m3u8');
+  SITES['https://uafix.net/serials/tk/season-02-episode-02/'] = '<iframe src="https://www.youtube.com/embed/t"></iframe>пройдіть авторизацію';
+  await assert.rejects(fix.online.stream(tk.items[3].url, ''), /для цієї серії сайт показує лише трейлер/);
+
   // UAFlix без доступу: трейлер замість плеєра і прохання авторизуватися.
   SITES['https://uafix.net/serials/locked/'] = '<div id="fplayer"><div class="video-box"><iframe src="https://www.youtube.com/embed/x"></iframe></div><div><span>Якщо Ви бачите тільки трейлер або плеєр не працює, тоді пройдіть авторизацію або змініть країну перегляду за допомогою ВПН!</span></div></div>';
   await assert.rejects(fix.online.loadPage('https://uafix.net/serials/locked/'), /UAFlix: сайт показує лише трейлер — серії доступні тільки після входу/);
