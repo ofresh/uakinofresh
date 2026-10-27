@@ -1292,6 +1292,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
       return head + (text ? ' «' + text + '»' : '');
     }
     var preferred = null;
+    var BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
     function deviceFetch(url, o) {
       o = o || {};
       var methods = [];
@@ -1300,15 +1301,20 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
       if (preferred && methods.indexOf(preferred) > 0) methods = [preferred].concat(methods.filter(function (m) {
         return m !== preferred;
       }));
-      var headers = {};
-      if (o.xhr) headers['X-Requested-With'] = 'XMLHttpRequest';
-      if (o.referer) headers.Referer = o.referer;
       var errors = [];
       return new Promise(function (resolve, reject) {
         function attempt(i) {
           var method = methods[i];
           var net = new Lampa.Reguest();
           net.timeout(20000);
+          var headers = method === 'native' ? {
+            'User-Agent': BROWSER_UA,
+            Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'uk-UA,uk;q=0.9,en;q=0.8',
+            Referer: o.referer || siteHost() + '/'
+          } : {};
+          if (o.xhr) headers['X-Requested-With'] = 'XMLHttpRequest';
+          if (o.body) headers['Content-Type'] = 'application/x-www-form-urlencoded; charset=UTF-8';
           net[method](url, function (text) {
             preferred = method;
             resolve(typeof text === 'string' ? text : JSON.stringify(text));
@@ -1359,10 +1365,19 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
         }, fail);
       },
       search: function search(m, ok, fail) {
-        if (mode() === 'direct') return promised(direct().online.findPages({
-          title: m.title,
-          original: m.original
-        }), ok, fail);
+        if (mode() === 'direct') {
+          return promised(direct().online.findPages({
+            title: m.title,
+            original: m.original
+          }), ok, function (err) {
+            deviceFetch(siteHost() + '/', {}).then(function (html) {
+              var t = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+              fail(err + '. Головна сторінка відкривається: «' + (t ? t[1].trim().slice(0, 60) : html.length + ' байт') + '»');
+            }, function (e) {
+              fail(err + '. Головна сторінка теж не відкривається: ' + e.message);
+            });
+          });
+        }
         serverGet('/online/search?title=' + enc(m.title) + '&original=' + enc(m.original) + '&year=' + enc(m.year), function (json) {
           ok(json && json.pages || []);
         }, fail);
