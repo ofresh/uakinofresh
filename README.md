@@ -1,51 +1,58 @@
 # UAKino → Lampa: онлайн-перегляд і торенти
 
-Парсер **uakino.best** і плагін для **Lampa**. На картці фільму/серіалу з'являються дві кнопки:
+Плагін для **Lampa** з парсером **uakino.best**. На картці фільму/серіалу з'являються дві кнопки:
 
 - **UAKino** — онлайн-перегляд прямо з сайту, як online_mod: вибір сезону (сторінки) й озвучки,
   список серій, якість (480p/720p/1080p), субтитри, плейлист серій і збереження прогресу перегляду;
 - **UAKino торенти** — торенти uakino.best, запуск через TorrServer.
 
-- `server.js` — парсер з Jackett-сумісним API. Шукає матеріали на uakino, знаходить на сторінках
-  посилання `https://uakino.best/torrent/<id>/<назва>.torrent`, завантажує .torrent, рахує infohash
-  і віддає magnet, розмір, кількість файлів і сіди/піри (через scrape трекерів).
-- `plugin/uakino.js` — плагін Lampa: кнопка **UAKino** на картці фільму/серіалу зі списком торентів
-  цього сайту, запуск через TorrServer.
-- `worker/dist/worker.mjs` — та сама логіка одним файлом для Cloudflare Workers.
-- `node server.js crawl` — обхід **усього сайту** (sitemap або сторінки списку) і збереження всіх
-  торентів у локальний індекс `data/index.json`.
+## Як це працює
 
-Сторонніх залежностей немає. Можна розгорнути безкоштовно на Cloudflare Workers або запустити вдома (Node.js 18+).
+uakino.best закритий Cloudflare, який **блокує всі сервери**: VPS, хмари і навіть Cloudflare Workers
+(перевірено — `403`). Пропускає лише звичайні домашні IP. Тому:
 
-## Швидкий старт без комп'ютера — Cloudflare Workers (безкоштовно)
+- **Плагін ходить на сайт сам, прямо з ТВ/приставки/телефона з Lampa** (режим «З пристрою», за
+  замовчуванням): шукає, розбирає сторінки й плейлисти, бере посилання на відео з плеєра ashdi.
+  Застосунки Lampa (Android, Tizen, webOS) не мають CORS-обмежень, тож це працює як в online_mod.
+- **Торенти** плагін передає в TorrServer прямим посиланням на `.torrent` з uakino — TorrServer
+  у вашій мережі завантажує його сам.
+- **Cloudflare Worker** лише роздає плагін за постійною адресою (`/uakino.js`) і оновлює його
+  разом з репозиторієм. Режим «Через парсер» (Worker або `server.js`) лишився як запасний.
 
-Парсер працює в мережі Cloudflare цілодобово, нічого запускати вдома не потрібно.
+| Файл | |
+| --- | --- |
+| `plugin/uakino.js` | код плагіна (інтерфейс Lampa) |
+| `lib/` | розбір uakino: пошук, сторінки, торенти, плейлисти, Playerjs, bencode |
+| `dist/uakino.js` | зібраний плагін (`plugin/` + `lib/`) — саме його віддає `/uakino.js` |
+| `worker/` | Cloudflare Worker; `worker/dist/worker.mjs` — зібраний одним файлом |
+| `server.js` | те саме для Node.js: Jackett API, magnet/infohash, сіди/піри, обхід усього сайту (`crawl`) |
 
-1. Зареєструйтесь на <https://dash.cloudflare.com/sign-up> (безкоштовно, без картки).
-2. Зліва **Compute (Workers)** → **Workers & Pages** → **Create** → **Create Worker**
-   (шаблон «Hello World»). Назвіть, наприклад, `uakino-lampa` → **Deploy**.
-3. Натисніть **Edit code**, видаліть увесь код у редакторі й вставте вміст файлу
-   [`worker/dist/worker.mjs`](worker/dist/worker.mjs) (на GitHub: кнопка **Raw** → виділити все → скопіювати).
-   Натисніть **Deploy**.
-4. Відкрийте в браузері `https://uakino-lampa.<ваш-піддомен>.workers.dev/` — має з'явитися JSON
-   зі словом `uakino-torrents`. Перевірка пошуку:
-   `https://uakino-lampa.<піддомен>.workers.dev/api/v2.0/indexers/all/results?Query=Високий%20потенціал`
-5. У Lampa → Налаштування → Розширення → Додати плагін:
-   `https://uakino-lampa.<піддомен>.workers.dev/uakino.js`
+Після змін у `plugin/`, `lib/` чи `worker/` перезберіть: `node build.js` (тести перевіряють,
+що зібрані файли актуальні). Сторонніх залежностей немає.
 
-Додатково (Worker → Settings → Variables): `UAKINO_HOST` (дзеркало сайту), `UAKINO_APIKEY`,
-`UAKINO_COOKIE`/`UAKINO_UA`.
+## Встановлення в Lampa
 
-Обмеження Worker-версії: до 30 торентів на пошук (ліміт безкоштовного плану), сіди/піри не
-рахуються (у Workers немає UDP), обходу всього сайту (`crawl`) немає — для цього є Node-версія нижче.
-Якщо Worker отримує від uakino `403 (Cloudflare заблокував запит)`, сайт відсіює і такі запити —
-тоді лишається Node-версія вдома або на іншому хостингу.
+Lampa → Налаштування → Розширення → Додати плагін:
 
-**Автооновлення.** Workflow `.github/workflows/deploy.yml` проганяє тести і, якщо в репозиторії
-є секрети `CLOUDFLARE_API_TOKEN` і `CLOUDFLARE_ACCOUNT_ID`, сам розгортає Worker після змін у `main`.
-Після змін у `lib/` чи `plugin/` перезберіть файл: `node worker/build.js`.
+```
+https://uakino.ofreshofresh.workers.dev/uakino.js
+```
 
-## Запуск на своєму комп'ютері / сервері (Node.js)
+На картці фільму з'являться кнопки **UAKino** (онлайн) і **UAKino торенти**. Налаштування —
+у розділі **UAKino**: звідки завантажувати, дзеркало сайту, адреса парсера.
+
+У браузерній версії Lampa (lampa.mx у браузері) прямі запити на uakino блокує CORS — там
+потрібен режим «Через парсер» з `server.js`, запущеним удома.
+
+## Cloudflare Worker (безкоштовно, без комп'ютера)
+
+Worker підключено до цього репозиторію (Workers & Pages → Import a repository, назва `uakino`,
+конфіг `wrangler.toml`), тож він сам оновлюється після кожного пушу в `main`.
+Вручну: Create Worker → Edit code → вставити вміст [`worker/dist/worker.mjs`](worker/dist/worker.mjs) → Deploy.
+
+Перевірка: `https://uakino.<піддомен>.workers.dev/health` → JSON зі словом `uakino-torrents`.
+
+## Node.js-сервер удома (необов'язково)
 
 ```bash
 git clone https://github.com/ofresh/uakinofresh && cd uakinofresh

@@ -3,10 +3,11 @@
  * Додає на картку фільму/серіалу дві кнопки:
  *   «UAKino»          — онлайн-перегляд з uakino.best (серії, озвучки, якість), як online_mod;
  *   «UAKino торенти»  — торенти з uakino.best, запуск через TorrServer.
- * Дані дає парсер з цього репозиторію (Cloudflare Worker або server.js).
+ * uakino.best пускає лише домашні IP, тому за замовчуванням плагін ходить на сайт сам,
+ * прямо з пристрою з Lampa. Режим «через парсер» (Cloudflare Worker або server.js) — запасний.
  *
- * Встановлення: Lampa → Налаштування → Розширення → Додати плагін →
- * <адреса парсера>/uakino.js — адреса парсера підставиться сама.
+ * Це вихідний код: робочий файл dist/uakino.js збирає build.js разом з lib/ (UAKinoLib).
+ * Встановлення: Lampa → Налаштування → Розширення → Додати плагін → <адреса Worker>/uakino.js
  */
 (function () {
   'use strict';
@@ -42,11 +43,7 @@
     };
   }
 
-  function requireServer() {
-    if (serverUrl()) return true;
-    Lampa.Noty.show('Вкажіть адресу парсера UAKino: Налаштування → UAKino');
-    return false;
-  }
+  var DEFAULT_HOST = 'https://uakino.best';
 
   function errorText(network, a, c) {
     if (a && a.responseJSON && a.responseJSON.error) return a.responseJSON.error;
@@ -68,20 +65,101 @@
     if (Lampa.Loading && Lampa.Loading.stop) Lampa.Loading.stop();
   }
 
+  // ======================= Джерело даних =======================
+  // direct — запити на uakino йдуть з пристрою (домашній IP, Cloudflare сайту пропускає);
+  // server — через парсер (Worker / server.js), напр. для веб-версії Lampa, де діє CORS.
+
+  function mode() {
+    return Lampa.Storage.get('uakino_mode', 'direct') === 'server' && serverUrl() ? 'server' : 'direct';
+  }
+
+  function siteHost() {
+    return String(Lampa.Storage.get('uakino_host', '') || DEFAULT_HOST).trim().replace(/\/+$/, '');
+  }
+
+  function deviceError(net, a, c, url) {
+    var status = a && a.status;
+    if (status === 403 || status === 503) return 'uakino заблокував запит (' + status + '). Спробуйте пізніше або інше дзеркало в налаштуваннях';
+    if (!status) return 'немає доступу до uakino з цього пристрою. У браузерній версії Lampa увімкніть режим «Через парсер»';
+    return (net.errorDecode ? net.errorDecode(a, c) : 'помилка') + ' — ' + url;
+  }
+
+  function deviceFetch(url, o) {
+    o = o || {};
+    return new Promise(function (resolve, reject) {
+      var net = new Lampa.Reguest();
+      net.timeout(20000);
+      var headers = {};
+      if (o.xhr) headers['X-Requested-With'] = 'XMLHttpRequest';
+      if (o.referer) headers.Referer = o.referer;
+      var params = { dataType: 'text', headers: headers };
+      var ok = function (text) {
+        resolve(typeof text === 'string' ? text : JSON.stringify(text));
+      };
+      var fail = function (a, c) {
+        var err = new Error(deviceError(net, a, c, url));
+        err.status = a && a.status;
+        reject(err);
+      };
+      var method = typeof net['native'] === 'function' ? 'native' : 'silent';
+      net[method](url, ok, fail, o.body || false, params);
+    });
+  }
+
+  var client = null;
+
+  function direct() {
+    var host = siteHost();
+    if (!client || client.host !== host) client = UAKinoLib.createClient({ host: host, fetchText: deviceFetch });
+    return client;
+  }
+
+  function promised(promise, ok, fail) {
+    promise.then(ok, function (e) {
+      fail((e && e.message) || String(e));
+    });
+  }
+
+  function serverGet(path, ok, fail) {
+    var net = new Lampa.Reguest();
+    net.timeout(120000);
+    net.silent(serverUrl() + path, ok, function (a, c) {
+      fail(errorText(net, a, c));
+    });
+  }
+
+  var Api = {
+    torrents: function (m, ok, fail) {
+      if (mode() === 'direct') return promised(direct().torrents({ title: m.title, original: m.original, year: m.year }), ok, fail);
+      serverGet('/api/v2.0/indexers/uakino/results' +
+        '?apikey=' + enc(Lampa.Storage.get('uakino_apikey', '')) +
+        '&Query=' + enc(m.title || m.original) +
+        '&title=' + enc(m.title) +
+        '&title_original=' + enc(m.original) +
+        '&year=' + enc(m.year) +
+        '&is_serial=' + (m.serial ? 2 : 1), function (json) {
+        ok((json && json.Results) || []);
+      }, fail);
+    },
+    search: function (m, ok, fail) {
+      if (mode() === 'direct') return promised(direct().online.findPages({ title: m.title, original: m.original }), ok, fail);
+      serverGet('/online/search?title=' + enc(m.title) + '&original=' + enc(m.original) + '&year=' + enc(m.year), function (json) {
+        ok((json && json.pages) || []);
+      }, fail);
+    },
+    page: function (url, ok, fail) {
+      if (mode() === 'direct') return promised(direct().online.loadPage(url), ok, fail);
+      serverGet('/online/page?url=' + enc(url), ok, fail);
+    },
+    stream: function (url, referer, ok, fail) {
+      if (mode() === 'direct') return promised(direct().online.stream(url, referer), ok, fail);
+      serverGet('/online/stream?url=' + enc(url) + '&referer=' + enc(referer), ok, fail);
+    }
+  };
+
   // ======================= Торенти =======================
 
-  var torrentNetwork = null;
-
-  function torrentUrl(movie) {
-    var m = movieInfo(movie);
-    return serverUrl() + '/api/v2.0/indexers/uakino/results' +
-      '?apikey=' + enc(Lampa.Storage.get('uakino_apikey', '')) +
-      '&Query=' + enc(m.title || m.original) +
-      '&title=' + enc(m.title) +
-      '&title_original=' + enc(m.original) +
-      '&year=' + enc(m.year) +
-      '&is_serial=' + (m.serial ? 2 : 1);
-  }
+  var torrentRequest = 0;
 
   function prepareTorrent(element) {
     element.size = bytes(element.Size);
@@ -91,24 +169,20 @@
   }
 
   function openTorrents(movie) {
-    if (!requireServer()) return;
-
     var controller = Lampa.Controller.enabled().name;
-    if (torrentNetwork) torrentNetwork.clear();
-    var network = torrentNetwork = new Lampa.Reguest();
-    network.timeout(120000);
+    var id = ++torrentRequest;
 
     if (Lampa.Loading && Lampa.Loading.start) {
       Lampa.Loading.start(function () {
-        network.clear();
+        torrentRequest++;
         stopLoading();
         Lampa.Controller.toggle(controller);
       });
     }
 
-    network.silent(torrentUrl(movie), function (json) {
+    Api.torrents(movieInfo(movie), function (results) {
+      if (id !== torrentRequest) return;
       stopLoading();
-      var results = (json && json.Results) || [];
       if (!results.length) {
         Lampa.Noty.show('На UAKino торентів не знайдено');
         Lampa.Controller.toggle(controller);
@@ -136,9 +210,10 @@
           Lampa.Controller.toggle(controller);
         }
       });
-    }, function (a, c) {
+    }, function (err) {
+      if (id !== torrentRequest) return;
       stopLoading();
-      Lampa.Noty.show('UAKino: ' + errorText(network, a, c));
+      Lampa.Noty.show('UAKino: ' + err);
       Lampa.Controller.toggle(controller);
     });
   }
@@ -146,7 +221,6 @@
   // ======================= Онлайн =======================
 
   function OnlineComponent(object) {
-    var network = new Lampa.Reguest();
     var scroll = new Lampa.Scroll({ mask: true, over: true });
     var html = $('<div class="uakino-online"></div>');
     var movie = object.movie || {};
@@ -160,14 +234,13 @@
     var groupIndex = 0;
     var last = null;
     var storeKey = 'uakino_choice_' + (movie.id || info.original || info.title);
+    var destroyed = false;
 
-    network.timeout(60000);
-
-    function api(path, params, ok, fail) {
-      network.clear();
-      network.silent(serverUrl() + path + '?' + params, ok, function (a, c) {
-        fail(errorText(network, a, c));
-      });
+    // Відповіді, що прийшли після закриття екрана, ігноруються.
+    function alive(fn) {
+      return function (v) {
+        if (!destroyed) fn(v);
+      };
     }
 
     function choice() {
@@ -192,26 +265,21 @@
     this.create = function () {
       html.append(scroll.render());
       this.activity.loader(true);
-      if (!serverUrl()) {
-        message('Вкажіть адресу парсера UAKino: Налаштування → UAKino');
-        return this.render();
-      }
-      var params = 'title=' + enc(info.title) + '&original=' + enc(info.original) + '&year=' + enc(info.year);
-      api('/online/search', params, function (json) {
-        pages = (json && json.pages) || [];
+      Api.search(info, alive(function (list) {
+        pages = list || [];
         if (!pages.length) return message('На UAKino нічого не знайдено');
         var c = choice();
         pageIndex = c.page < pages.length ? c.page || 0 : 0;
         loadPage();
-      }, function (err) {
+      }), alive(function (err) {
         message('UAKino: ' + err);
-      });
+      }));
       return this.render();
     };
 
     function loadPage() {
       self.activity.loader(true);
-      api('/online/page', 'url=' + enc(pages[pageIndex].url), function (json) {
+      Api.page(pages[pageIndex].url, alive(function (json) {
         data = json || { items: [] };
         groups = [];
         (data.items || []).forEach(function (item) {
@@ -220,9 +288,9 @@
         var saved = groups.indexOf(choice().group);
         groupIndex = saved >= 0 ? saved : 0;
         build();
-      }, function (err) {
+      }), alive(function (err) {
         message('UAKino: ' + err);
-      });
+      }));
     }
 
     function currentItems() {
@@ -338,16 +406,12 @@
 
     function resolve(item, ok, fail) {
       if (item.stream) return ok(item.stream);
-      var net = new Lampa.Reguest();
-      net.timeout(30000);
-      net.silent(serverUrl() + '/online/stream?url=' + enc(item.url) + '&referer=' + enc(data.url), function (json) {
+      Api.stream(item.url, data.url, function (json) {
         var s = json && json.items && json.items.length ? json.items[0].stream : json;
         if (!s || !s.url) return fail('посилання на відео не знайдено');
         item.stream = s;
         ok(s);
-      }, function (a, c) {
-        fail(errorText(net, a, c));
-      });
+      }, fail);
     }
 
     function playerItem(item, stream) {
@@ -433,7 +497,7 @@
     this.stop = function () {};
 
     this.destroy = function () {
-      network.clear();
+      destroyed = true;
       scroll.destroy();
       html.remove();
     };
@@ -468,7 +532,7 @@
 
     var online = $('<div class="full-start__button selector view--uakino view--uakino-online">' + ICON_PLAY + '<span>UAKino</span></div>');
     online.on('hover:enter', function () {
-      if (requireServer()) openOnline(e.data.movie);
+      openOnline(e.data.movie);
     });
 
     var torrents = $('<div class="full-start__button selector view--uakino view--uakino-torrent">' + ICON + '<span>UAKino торенти</span></div>');
@@ -495,10 +559,20 @@
     Lampa.SettingsApi.addComponent({ component: 'uakino', name: 'UAKino', icon: ICON });
     Lampa.SettingsApi.addParam({
       component: 'uakino',
+      param: { name: 'uakino_mode', type: 'select', values: { direct: 'З пристрою (рекомендовано)', server: 'Через парсер' }, default: 'direct' },
+      field: { name: 'Звідки завантажувати', description: 'uakino пускає лише домашні IP, тому запити краще робити прямо з ТВ/приставки' }
+    });
+    Lampa.SettingsApi.addParam({
+      component: 'uakino',
+      param: { name: 'uakino_host', type: 'input', values: '', default: '', placeholder: DEFAULT_HOST },
+      field: { name: 'Адреса сайту', description: 'Дзеркало uakino. За замовчуванням: ' + DEFAULT_HOST }
+    });
+    Lampa.SettingsApi.addParam({
+      component: 'uakino',
       param: { name: 'uakino_server', type: 'input', values: '', default: '', placeholder: BUILT_IN_SERVER || 'https://uakino-lampa.example.workers.dev' },
       field: {
         name: 'Адреса парсера',
-        description: BUILT_IN_SERVER ? 'За замовчуванням: ' + BUILT_IN_SERVER : 'Адреса Cloudflare Worker або server.js'
+        description: 'Для режиму «Через парсер». ' + (BUILT_IN_SERVER ? 'За замовчуванням: ' + BUILT_IN_SERVER : 'Адреса Cloudflare Worker або server.js')
       }
     });
     Lampa.SettingsApi.addParam({

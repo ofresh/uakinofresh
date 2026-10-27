@@ -1,7 +1,7 @@
 'use strict';
 
 // Версія парсера для Cloudflare Workers: працює цілодобово без власного комп'ютера.
-// Збирається в один файл командою `node worker/build.js` → worker/dist/worker.mjs
+// Збирається в один файл командою `node build.js` → worker/dist/worker.mjs
 
 const parse = require('../lib/parse');
 const { parseTorrent } = require('../lib/bencode');

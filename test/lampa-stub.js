@@ -19,7 +19,7 @@
   var components = {};
   var current = null;
   window.Navigator = { canmove: function () { return true; }, move: function () {} };
-  var storage = {};
+  var storage = window.__preset || {};
   window.__settings = [];
   window.Lampa = {
     Storage: { get: function (k, d) { return k in storage ? storage[k] : d; }, set: function (k, v) { storage[k] = v; } },
@@ -73,13 +73,28 @@
       var t = 0;
       this.timeout = function (v) { t = v; };
       this.clear = function () { if (xhr) xhr.abort(); };
-      this.silent = function (url, ok, err) {
+      function go(url, ok, err, post, params) {
+        params = params || {};
         xhr = new XMLHttpRequest();
-        xhr.open('GET', url);
+        xhr.open(post ? 'POST' : 'GET', url);
         xhr.timeout = t;
-        xhr.onload = function () { if (xhr.status === 200) ok(JSON.parse(xhr.responseText)); else err(xhr, xhr.status); };
-        xhr.onerror = function () { err(xhr, 'error'); };
-        xhr.send();
+        var headers = params.headers || {};
+        Object.keys(headers).forEach(function (h) {
+          try { xhr.setRequestHeader(h, headers[h]); } catch (e) { /* заборонений заголовок (Referer) */ }
+        });
+        if (post) xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+        var x = xhr;
+        x.onload = function () {
+          if (x.status !== 200) return err(x, x.status);
+          ok(params.dataType === 'text' ? x.responseText : JSON.parse(x.responseText));
+        };
+        x.onerror = function () { err(x, 'error'); };
+        x.send(post || null);
+      }
+      this.silent = go;
+      this['native'] = function (url, ok, err, post, params) {
+        window.__native = (window.__native || 0) + 1;
+        go(url, ok, err, post, params);
       };
     }
   };

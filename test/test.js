@@ -63,6 +63,10 @@ function startUpstream() {
   const requests = [];
   const server = http.createServer((req, res) => {
     requests.push(req.url);
+    // Застосунки Lampa не мають CORS-обмежень; браузер у тесті — має, тож дозволяємо.
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Headers', 'X-Requested-With, Content-Type');
+    if (req.method === 'OPTIONS') { res.statusCode = 204; return res.end(); }
     const u = new URL(req.url, 'http://x');
     const p = decodeURIComponent(u.pathname);
     if (p === '/index.php' && u.searchParams.get('story')) {
@@ -77,7 +81,8 @@ function startUpstream() {
       return res.end(JSON.stringify({ success: true, response: playlistHtml(base) }));
     }
     if (p === '/vod/1001' || p === '/vod/1002' || p === '/vod/2001') {
-      if (!/25998/.test(req.headers.referer || '')) { res.statusCode = 403; return res.end('bad referer'); }
+      // Браузер не дає задати Referer, тож перевіряємо його лише для серверних запитів.
+      if (!req.headers.origin && !/25998/.test(req.headers.referer || '')) { res.statusCode = 403; return res.end('bad referer'); }
       const id = p.split('/').pop();
       return res.end('<script>var player = new Playerjs({id:"player", file:"[480p]https://cdn.example/' + id + '/480.m3u8,[1080p]https://cdn.example/' + id + '/1080.m3u8", subtitle:"[Українські]https://cdn.example/' + id + '.vtt", poster:"x.jpg"});</script>');
     }
@@ -278,7 +283,7 @@ test('crawl: sitemap → індекс усіх торентів, потім по
 
 // ---------------- plugin (Playwright, якщо доступний) ----------------
 
-test('плагін Lampa: кнопки, торенти → Lampa.Torrent.start, онлайн → Lampa.Player', async () => {
+async function pluginFlow(mode) {
   let chromium;
   try { ({ chromium } = require('playwright')); } catch (e) { console.log('    (пропущено: немає playwright)'); return; }
 
@@ -294,6 +299,7 @@ test('плагін Lampa: кнопки, торенти → Lampa.Torrent.start, 
     page.on('pageerror', (e) => errors.push(e.message));
     await page.goto(base + '/health');
     await page.setContent('<div id="full"><div class="full-start-new__buttons"><div class="full-start__button selector view--torrent">Торренти</div></div></div>');
+    await page.evaluate((preset) => { window.__preset = preset; }, mode === 'direct' ? { uakino_host: up.base } : { uakino_mode: 'server' });
     await page.addScriptTag({ path: path.join(__dirname, 'lampa-stub.js') });
     await page.addScriptTag({ url: base + '/uakino.js' });
 
@@ -306,11 +312,17 @@ test('плагін Lampa: кнопки, торенти → Lampa.Torrent.start, 
     const sel = await page.evaluate(() => ({ title: window.__select.title, items: window.__select.items.map((i) => [i.title, i.subtitle]) }));
     assert.strictEqual(sel.items.length, 3);
     assert.strictEqual(sel.items[0][0], 'Високий потенціал (Сезон 1) / High Potential (2024) [Скачати торент]');
-    assert.ok(/5\.86 KB • 3 файл\. • ▲ 0 • ▼ 0/.test(sel.items[0][1]), sel.items[0][1]);
+    if (mode === 'direct') assert.strictEqual(sel.items[0][1], '▲ 0 • ▼ 0');
+    else assert.ok(/5\.86 KB • 3 файл\. • ▲ 0 • ▼ 0/.test(sel.items[0][1]), sel.items[0][1]);
 
     await page.evaluate(() => window.__select.onSelect(window.__select.items[1]));
     const started = await page.evaluate(() => window.__started);
-    assert.strictEqual(started.element.InfoHash, torrents['703633'].hash);
+    if (mode === 'direct') {
+      // .torrent качає TorrServer з домашньої мережі — посилання прямо на uakino.
+      assert.strictEqual(started.element.Link, up.base + '/torrent/703633/' + encodeURIComponent('Високий потенціал (Сезон 1) 1080p.torrent'));
+    } else {
+      assert.strictEqual(started.element.InfoHash, torrents['703633'].hash);
+    }
     assert.strictEqual(started.movie.original_name, 'High Potential');
     assert.deepStrictEqual(errors, []);
 
@@ -352,13 +364,21 @@ test('плагін Lampa: кнопки, торенти → Lampa.Torrent.start, 
 
     // Settings зареєстровано
     const settings = await page.evaluate(() => window.__settings);
-    assert.deepStrictEqual(settings, ['uakino', 'uakino_server', 'uakino_apikey']);
+    assert.deepStrictEqual(settings, ['uakino', 'uakino_mode', 'uakino_host', 'uakino_server', 'uakino_apikey']);
+
+    // У режимі «з пристрою» на парсер не йде жодного запиту про сайт.
+    const natives = await page.evaluate(() => window.__native || 0);
+    if (mode === 'direct') assert.ok(natives > 5, String(natives));
+    else assert.strictEqual(natives, 0);
   } finally {
     await browser.close();
     srv.close();
     up.server.close();
   }
-});
+}
+
+test('плагін Lampa (з пристрою): кнопки, торенти → Lampa.Torrent.start, онлайн → Lampa.Player', () => pluginFlow('direct'));
+test('плагін Lampa (через парсер): те саме через Worker/server.js', () => pluginFlow('server'));
 
 // ---------------- online ----------------
 
@@ -441,8 +461,8 @@ test('worker: зібраний файл актуальний і віддає т�
   const { execFileSync } = require('child_process');
   const dist = path.join(__dirname, '..', 'worker', 'dist', 'worker.mjs');
   const before = fs.existsSync(dist) ? fs.readFileSync(dist, 'utf8') : '';
-  execFileSync(process.execPath, [path.join(__dirname, '..', 'worker', 'build.js')]);
-  assert.strictEqual(fs.readFileSync(dist, 'utf8'), before, 'worker/dist/worker.mjs застарів — запустіть node worker/build.js');
+  execFileSync(process.execPath, [path.join(__dirname, '..', 'build.js')]);
+  assert.strictEqual(fs.readFileSync(dist, 'utf8'), before, 'worker/dist/worker.mjs застарів — запустіть node build.js');
 
   const worker = (await import(require('url').pathToFileURL(dist).href)).default;
   const up = await startUpstream();

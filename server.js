@@ -86,7 +86,7 @@ function createServer(client) {
 
       // Плагін для Lampa з уже підставленою адресою цього сервера.
       if (url.pathname === '/uakino.js' || url.pathname === '/plugin.js') {
-        const code = fs.readFileSync(path.join(__dirname, 'plugin', 'uakino.js'), 'utf8')
+        const code = fs.readFileSync(path.join(__dirname, 'dist', 'uakino.js'), 'utf8')
           .replace("'__UAKINO_SERVER__'", JSON.stringify(publicBase(req)));
         return send(res, 200, code, 'application/javascript; charset=utf-8');
       }
