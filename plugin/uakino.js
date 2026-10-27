@@ -203,7 +203,7 @@
   function withLoginHint(err, sourceId) {
     err = String(err || '');
     if (sourceId !== 'uaflix' || !/лише трейлер/.test(err)) return err;
-    if (!hasCredentials('uaflix')) return err + '. Увійдіть в акаунт UAFlix: Налаштування → UAKino';
+    if (!hasCredentials('uaflix')) return err + '. Через Media Station X (LG) сайт бачить не ваш IP — увійдіть в акаунт UAFlix: Налаштування → UAKino';
     if (cookieFor('uaflix')) {
       Lampa.Storage.set('uakino_cookie_uaflix', '');
       return err + '. Вхід застарів — відкрийте ще раз, плагін увійде заново';

@@ -1217,7 +1217,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                       _context0.n = 11;
                       break;
                     }
-                    throw Object.assign(new Error(name + ': для цієї серії сайт показує лише трейлер — потрібен вхід або серія ще не вийшла'), {
+                    throw Object.assign(new Error(name + ': для цієї серії сайт показує лише трейлер — серії він відкриває тільки з українського IP або після входу в акаунт'), {
                       status: 403
                     });
                   case 11:
@@ -1467,7 +1467,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                               _context10.n = 24;
                               break;
                             }
-                            throw Object.assign(new Error(name + ': сайт показує лише трейлер — серії доступні тільки після входу в акаунт на сайті'), {
+                            throw Object.assign(new Error(name + ': сайт показує лише трейлер — відео доступне тільки з українського IP або після входу в акаунт'), {
                               status: 403
                             });
                           case 24:
@@ -1940,7 +1940,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
     function withLoginHint(err, sourceId) {
       err = String(err || '');
       if (sourceId !== 'uaflix' || !/лише трейлер/.test(err)) return err;
-      if (!hasCredentials('uaflix')) return err + '. Увійдіть в акаунт UAFlix: Налаштування → UAKino';
+      if (!hasCredentials('uaflix')) return err + '. Через Media Station X (LG) сайт бачить не ваш IP — увійдіть в акаунт UAFlix: Налаштування → UAKino';
       if (cookieFor('uaflix')) {
         Lampa.Storage.set('uakino_cookie_uaflix', '');
         return err + '. Вхід застарів — відкрийте ще раз, плагін увійде заново';
