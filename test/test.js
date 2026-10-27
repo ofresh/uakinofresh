@@ -265,7 +265,7 @@ test('сервер: Jackett API, magnet, /download, плагін, CORS', async (
 
     // Плагін з підставленою адресою сервера.
     const js = await (await fetch(base + '/uakino.js')).text();
-    assert.ok(js.indexOf("var BUILT_IN_SERVER = \"" + base + "\"") >= 0);
+    assert.ok(js.indexOf("Lampa.Component.add('uakino_online'") >= 0);
 
     const opt = await fetch(base + '/api/v2.0/indexers/all/results', { method: 'OPTIONS' });
     assert.strictEqual(opt.status, 204);
@@ -334,32 +334,14 @@ async function pluginFlow(mode) {
     page.on('pageerror', (e) => errors.push(e.message));
     await page.goto(base + '/health');
     await page.setContent('<div id="full"><div class="full-start-new__buttons"><div class="full-start__button selector view--torrent">Торренти</div></div></div>');
-    await page.evaluate(([preset, fail]) => { window.__preset = preset; window.__nativeFail = fail; }, [mode === 'server' ? { uakino_mode: 'server' } : { uakino_host: up.base, uakino_src_uaserials: false, uakino_src_uaflix: false, uakino_src_eneyida: false, uakino_src_uaserial: false }, mode === 'fallback']);
+    // Тестовий сайт (розмітка DLE з плейлистом) підставляємо як дзеркало UASerials, решту вимикаємо.
+    await page.evaluate(([preset, fail]) => { window.__preset = preset; window.__nativeFail = fail; }, [{ uakino_host_uaserials: up.base, uakino_src_uaflix: false, uakino_src_eneyida: false, uakino_src_uaserial: false }, mode === 'fallback']);
     await page.addScriptTag({ path: path.join(__dirname, 'lampa-stub.js') });
     await page.addScriptTag({ url: base + '/uakino.js' });
 
     await page.evaluate(() => window.__fireFull({ title: 'Високий потенціал', original_name: 'High Potential', name: 'Високий потенціал', first_air_date: '2024-09-17' }));
     const btns = await page.$$eval('.full-start-new__buttons > *', (els) => els.map((e) => e.textContent));
-    assert.deepStrictEqual(btns, ['UAKino', 'Торренти', 'UAKino торенти']);
-
-    await page.evaluate(() => window.__enter('.view--uakino-torrent'));
-    await page.waitForFunction(() => window.__select, null, { timeout: 15000 });
-    const sel = await page.evaluate(() => ({ title: window.__select.title, items: window.__select.items.map((i) => [i.title, i.subtitle]) }));
-    assert.strictEqual(sel.items.length, 3);
-    assert.strictEqual(sel.items[0][0], 'Високий потенціал (Сезон 1) / High Potential (2024) [Скачати торент]');
-    if (mode !== 'server') assert.strictEqual(sel.items[0][1], '▲ 0 • ▼ 0');
-    else assert.ok(/5\.86 KB • 3 файл\. • ▲ 0 • ▼ 0/.test(sel.items[0][1]), sel.items[0][1]);
-
-    await page.evaluate(() => window.__select.onSelect(window.__select.items[1]));
-    const started = await page.evaluate(() => window.__started);
-    if (mode !== 'server') {
-      // .torrent качає TorrServer з домашньої мережі — посилання прямо на uakino.
-      assert.strictEqual(started.element.Link, up.base + '/torrent/703633/' + encodeURIComponent('Високий потенціал (Сезон 1) 1080p.torrent'));
-    } else {
-      assert.strictEqual(started.element.InfoHash, torrents['703633'].hash);
-    }
-    assert.strictEqual(started.movie.original_name, 'High Potential');
-    assert.deepStrictEqual(errors, []);
+    assert.deepStrictEqual(btns, ['UAKino', 'Торренти'], 'лише кнопка UAKino, без торентів');
 
     // ---- онлайн ----
     await page.evaluate(() => window.__enter('.view--uakino-online'));
@@ -367,7 +349,7 @@ async function pluginFlow(mode) {
     const list = await page.$$eval('.uakino-online__item', (els) => els.map((e) => e.querySelector('.uakino-online__title').textContent + ' | ' + e.querySelector('.uakino-online__info').textContent));
     assert.deepStrictEqual(list, ['1 серія | Сезон 1 • ТакТребаПродакшн', '2 серія | Сезон 1 • ТакТребаПродакшн']);
     const filters = await page.$$eval('.uakino-online__filters .uakino-online__filter', (els) => els.map((e) => e.textContent));
-    assert.deepStrictEqual(filters, ['Джерело: UAKino', 'Озвучка: ТакТребаПродакшн']);
+    assert.deepStrictEqual(filters, ['Джерело: UASerials', 'Озвучка: ТакТребаПродакшн']);
     // Сезони — окремі вкладки; активна — перша.
     const tabs = await page.$$eval('.uakino-online__tabs .uakino-online__filter', (els) => els.map((e) => e.textContent + (e.classList.contains('uakino-online__filter--active') ? '*' : '')));
     assert.deepStrictEqual(tabs, ['Сезон 1*', 'Сезон 2']);
@@ -404,16 +386,14 @@ async function pluginFlow(mode) {
 
     // Settings зареєстровано
     const settings = await page.evaluate(() => window.__settings);
-    assert.deepStrictEqual(settings, ['uakino', 'uakino_mode',
-      'uakino_src_uakino', 'uakino_src_uaserials', 'uakino_src_uaflix', 'uakino_src_eneyida', 'uakino_src_uaserial',
-      'uakino_host', 'uakino_host_uaserials', 'uakino_host_uaflix', 'uakino_host_eneyida', 'uakino_host_uaserial',
-      'uakino_server', 'uakino_apikey']);
+    assert.deepStrictEqual(settings, ['uakino',
+      'uakino_src_uaserials', 'uakino_src_uaflix', 'uakino_src_eneyida', 'uakino_src_uaserial',
+      'uakino_host_uaserials', 'uakino_host_uaflix', 'uakino_host_eneyida', 'uakino_host_uaserial']);
 
-    // У режимі «з пристрою» на парсер не йде жодного запиту про сайт.
+    // Усі запити на сайти йдуть з пристрою.
     const natives = await page.evaluate(() => window.__native || 0);
     if (mode === 'direct') assert.ok(natives > 5, String(natives));
-    else if (mode === 'fallback') assert.strictEqual(natives, 1); // після першої невдачі — одразу WebView
-    else assert.strictEqual(natives, 0);
+    else assert.strictEqual(natives, 1); // після першої невдачі — одразу WebView
   } finally {
     await browser.close();
     srv.close();
@@ -421,8 +401,7 @@ async function pluginFlow(mode) {
   }
 }
 
-test('плагін Lampa (з пристрою): кнопки, торенти → Lampa.Torrent.start, онлайн → Lampa.Player', () => pluginFlow('direct'));
-test('плагін Lampa (через парсер): те саме через Worker/server.js', () => pluginFlow('server'));
+test('плагін Lampa: кнопка UAKino, пошук, сезони, озвучки → Lampa.Player', () => pluginFlow('direct'));
 test('плагін Lampa (native не працює): автоматично через WebView', () => pluginFlow('fallback'));
 
 // ---------------- інші сайти ----------------
@@ -682,7 +661,7 @@ test('worker: зібраний файл актуальний і віддає т�
     assert.strictEqual((await call('/download?url=' + encodeURIComponent('https://evil.example/torrent/1/a.torrent'))).status, 403);
 
     const js = await (await call('/uakino.js')).text();
-    assert.ok(js.indexOf('var BUILT_IN_SERVER = "https://uakino.example.workers.dev"') >= 0);
+    assert.ok(js.indexOf("Lampa.Component.add('uakino_online'") >= 0);
 
     assert.deepStrictEqual((await (await call('/api/v2.0/indexers/all/results?Query=zzzz')).json()).Results, []);
     await checkOnline(async (p) => {
