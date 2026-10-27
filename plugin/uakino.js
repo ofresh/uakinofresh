@@ -368,7 +368,11 @@
     var pageError = '';
     var keepFocus = ''; // що виділити після перебудови: 'source' | 'voice' | 'tab'
     var voiceRestored = false; // озвучку з минулого перегляду відновлюємо один раз
-    var upTargets = { tab: null, filter: null }; // куди йти «вгору», якщо строго вгорі нічого немає
+    var upTargets = { tab: null, filter: null, range: null }; // куди йти «вгору», якщо строго вгорі нічого немає
+    // Довгі серіали (Ван Піс — 1000+ серій) показуємо діапазонами по EPISODES_PAGE.
+    var EPISODES_PAGE = 50;
+    var range = -1; // -1 — діапазон з останньою переглянутою серією
+    var jumpTo = null; // індекс серії, на яку перейти після «Серія №»
 
     function alive(fn) {
       return function (v) {
@@ -781,6 +785,7 @@
           cur.source = i;
           cur.tab = 0;
           cur.voice = 0;
+          range = -1;
           keepFocus = 'source';
           saveChoice({ manual: true });
           loadCurrent();
@@ -790,6 +795,7 @@
         filters.append(voiceBtn = button('Озвучка:', voices[cur.voice], function () {
           select('Озвучка', voices, cur.voice, function (i) {
             cur.voice = i;
+            range = -1;
             keepFocus = 'voice';
             saveChoice();
             build();
@@ -807,6 +813,7 @@
             if (i === cur.tab) return;
             cur.tab = i;
             cur.voice = Math.max(0, currentVoicesFor(i).indexOf(voices[cur.voice]));
+            range = -1;
             keepFocus = 'tab';
             saveChoice();
             loadCurrent();
@@ -817,17 +824,68 @@
         body.append(row);
       }
 
-      var items = pageError ? [] : currentItems();
+      var all = pageError ? [] : currentItems();
       if (pageError) {
         body.append($('<div class="uakino-online__empty"></div>').text(pageError + '. Виберіть інше джерело.'));
-      } else if (!items.length) {
+      } else if (!all.length) {
         body.append($('<div class="uakino-online__empty"></div>').text('На цій сторінці немає відео. Виберіть інше джерело.'));
+      }
+
+      // Діапазон серій: після «Серія №» — той, де ця серія; інакше — з останньою переглянутою.
+      var lastKey = choice().last;
+      var lastIndex = -1;
+      all.forEach(function (it, i) {
+        if (viewKey(it) === lastKey) lastIndex = i;
+      });
+      var rangesCount = Math.ceil(all.length / EPISODES_PAGE);
+      if (jumpTo !== null) range = Math.floor(jumpTo / EPISODES_PAGE);
+      else if (range < 0) range = lastIndex >= 0 ? Math.floor(lastIndex / EPISODES_PAGE) : 0;
+      if (range >= rangesCount) range = 0;
+      var startIndex = range * EPISODES_PAGE;
+      var items = all.slice(startIndex, startIndex + EPISODES_PAGE);
+
+      var rangeBtn = null;
+      if (rangesCount > 1) {
+        var numberOf = function (it, i) { return it.episode || i + 1; };
+        var ranges = $('<div class="uakino-online__tabs uakino-online__ranges"></div>');
+        for (var r = 0; r < rangesCount; r++) {
+          (function (r) {
+            var a = r * EPISODES_PAGE;
+            var b = Math.min(all.length, a + EPISODES_PAGE) - 1;
+            var rb = button(numberOf(all[a], a) + '–' + numberOf(all[b], b), '', function () {
+              if (r === range) return;
+              range = r;
+              keepFocus = 'range';
+              build();
+            }, r === range);
+            if (r === range) rangeBtn = rb;
+            ranges.append(rb);
+          })(r);
+        }
+        // Перехід одразу до серії за номером.
+        filters.append(button('Серія №', '', function () {
+          if (!Lampa.Input || !Lampa.Input.edit) return;
+          Lampa.Input.edit({ title: 'Номер серії', value: '', free: true, nosave: true }, function (value) {
+            var n = parseInt(value, 10);
+            if (!n) return;
+            var idx = -1;
+            for (var i = 0; i < all.length; i++) {
+              if (all[i].episode === n) { idx = i; break; }
+            }
+            if (idx < 0 && n <= all.length) idx = n - 1;
+            if (idx < 0) return Lampa.Noty.show('Серії ' + n + ' тут немає');
+            jumpTo = idx;
+            build();
+          });
+        }));
+        body.append(ranges);
       }
 
       var list = $('<div class="uakino-online__list' + (items.length === 1 ? ' uakino-online__list--single' : '') + '"></div>');
       var lastWatched = null;
-      var lastKey = choice().last;
-      items.forEach(function (item, index) {
+      var jumpEl = null;
+      items.forEach(function (item, i) {
+        var index = startIndex + i; // номер у повному списку — для плейлиста й переходів
         // Картка 16:9: кадр серії (з TMDB, підвантажується після показу), номер, назва, озвучка.
         var el = $('<div class="uakino-online__item selector">' +
           '<div class="uakino-online__thumb"><div class="uakino-online__thumb-shade"></div><div class="uakino-online__num"></div><div class="uakino-online__timeline"></div></div>' +
@@ -846,21 +904,26 @@
         var key = viewKey(item);
         if (isViewed(key) || (view && view.percent >= 85)) showViewed(el);
         if (key === lastKey) lastWatched = el[0];
+        if (jumpTo === index) jumpEl = el[0];
         el.on('hover:enter', function () {
-          play(items, index, el);
+          // Плейлист — усі серії, тож після 50-ї плеєр сам перейде на 51-шу.
+          play(all, index, el);
         });
         list.append(focusable(el));
       });
       body.append(list);
       decorateEpisodes(list);
-      // Відкриваємо на останній переглянутій серії.
+      // Відкриваємо на останній переглянутій серії (або на щойно знайденій за номером).
       if (lastWatched && !keepFocus) last = lastWatched;
+      if (jumpEl) last = jumpEl;
+      jumpTo = null;
 
+      upTargets.range = rangeBtn ? rangeBtn[0] : null;
       upTargets.tab = tabBtn ? tabBtn[0] : null;
       upTargets.filter = sourceBtn ? sourceBtn[0] : null;
 
       // Курсор лишається на кнопці, яку щойно натиснули.
-      var keep = keepFocus === 'tab' ? tabBtn : keepFocus === 'voice' ? voiceBtn : keepFocus === 'source' ? sourceBtn : null;
+      var keep = keepFocus === 'tab' ? tabBtn : keepFocus === 'voice' ? voiceBtn : keepFocus === 'source' ? sourceBtn : keepFocus === 'range' ? rangeBtn : null;
       if (keep) last = keep[0];
       keepFocus = '';
 
@@ -953,8 +1016,10 @@
           if (Navigator.canmove('up')) return Navigator.move('up');
           // Сітка карток ширша за ряд вкладок: з першого ряду — на активний сезон, з сезонів — на «Джерело».
           var inList = last && $(last).closest('.uakino-online__list').length;
+          var inRanges = last && $(last).closest('.uakino-online__ranges').length;
           var inTabs = last && $(last).closest('.uakino-online__tabs').length;
-          var target = inList ? upTargets.tab || upTargets.filter : inTabs ? upTargets.filter : null;
+          var target = inList ? upTargets.range || upTargets.tab || upTargets.filter :
+            inRanges ? upTargets.tab || upTargets.filter : inTabs ? upTargets.filter : null;
           if (target) {
             last = target;
             Lampa.Controller.collectionFocus(target, scroll.render());
@@ -1149,6 +1214,7 @@
     '.uakino-online__filters,.uakino-online__tabs{display:flex;flex-wrap:wrap;margin-bottom:.9em}' +
     '.uakino-online__filter{padding:.7em 1.5em;margin:0 .8em .8em 0;border-radius:2em;background:rgba(255,255,255,.13);font-weight:500;transition:transform .15s,background-color .15s}' +
     '.uakino-online__tabs .uakino-online__filter{padding:.55em 1.3em;background:rgba(255,255,255,.06)}' +
+    '.uakino-online__ranges .uakino-online__filter{padding:.45em 1.1em;font-size:.9em}' +
     '.uakino-online__filter--active{background:rgba(255,255,255,.3) !important;font-weight:600}' +
     '.uakino-online__filter.focus{background:#fff !important;color:#0b0d11;transform:scale(1.06)}' +
     '.uakino-online__list{display:flex;flex-wrap:wrap;margin:.4em -.7em 0}' +

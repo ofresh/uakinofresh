@@ -2116,8 +2116,12 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
       var voiceRestored = false;
       var upTargets = {
         tab: null,
-        filter: null
+        filter: null,
+        range: null
       };
+      var EPISODES_PAGE = 50;
+      var range = -1;
+      var jumpTo = null;
       function alive(fn) {
         return function (v) {
           if (!destroyed) fn(v);
@@ -2514,6 +2518,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
             cur.source = i;
             cur.tab = 0;
             cur.voice = 0;
+            range = -1;
             keepFocus = 'source';
             saveChoice({
               manual: true
@@ -2527,6 +2532,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
           filters.append(voiceBtn = button('Озвучка:', voices[cur.voice], function () {
             select('Озвучка', voices, cur.voice, function (i) {
               cur.voice = i;
+              range = -1;
               keepFocus = 'voice';
               saveChoice();
               build();
@@ -2542,6 +2548,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
               if (i === cur.tab) return;
               cur.tab = i;
               cur.voice = Math.max(0, currentVoicesFor(i).indexOf(voices[cur.voice]));
+              range = -1;
               keepFocus = 'tab';
               saveChoice();
               loadCurrent();
@@ -2551,16 +2558,72 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
           });
           body.append(row);
         }
-        var items = pageError ? [] : currentItems();
+        var all = pageError ? [] : currentItems();
         if (pageError) {
           body.append($('<div class="uakino-online__empty"></div>').text(pageError + '. Виберіть інше джерело.'));
-        } else if (!items.length) {
+        } else if (!all.length) {
           body.append($('<div class="uakino-online__empty"></div>').text('На цій сторінці немає відео. Виберіть інше джерело.'));
+        }
+        var lastKey = choice().last;
+        var lastIndex = -1;
+        all.forEach(function (it, i) {
+          if (viewKey(it) === lastKey) lastIndex = i;
+        });
+        var rangesCount = Math.ceil(all.length / EPISODES_PAGE);
+        if (jumpTo !== null) range = Math.floor(jumpTo / EPISODES_PAGE);else if (range < 0) range = lastIndex >= 0 ? Math.floor(lastIndex / EPISODES_PAGE) : 0;
+        if (range >= rangesCount) range = 0;
+        var startIndex = range * EPISODES_PAGE;
+        var items = all.slice(startIndex, startIndex + EPISODES_PAGE);
+        var rangeBtn = null;
+        if (rangesCount > 1) {
+          var numberOf = function numberOf(it, i) {
+            return it.episode || i + 1;
+          };
+          var ranges = $('<div class="uakino-online__tabs uakino-online__ranges"></div>');
+          for (var r = 0; r < rangesCount; r++) {
+            (function (r) {
+              var a = r * EPISODES_PAGE;
+              var b = Math.min(all.length, a + EPISODES_PAGE) - 1;
+              var rb = button(numberOf(all[a], a) + '–' + numberOf(all[b], b), '', function () {
+                if (r === range) return;
+                range = r;
+                keepFocus = 'range';
+                build();
+              }, r === range);
+              if (r === range) rangeBtn = rb;
+              ranges.append(rb);
+            })(r);
+          }
+          filters.append(button('Серія №', '', function () {
+            if (!Lampa.Input || !Lampa.Input.edit) return;
+            Lampa.Input.edit({
+              title: 'Номер серії',
+              value: '',
+              free: true,
+              nosave: true
+            }, function (value) {
+              var n = parseInt(value, 10);
+              if (!n) return;
+              var idx = -1;
+              for (var i = 0; i < all.length; i++) {
+                if (all[i].episode === n) {
+                  idx = i;
+                  break;
+                }
+              }
+              if (idx < 0 && n <= all.length) idx = n - 1;
+              if (idx < 0) return Lampa.Noty.show('Серії ' + n + ' тут немає');
+              jumpTo = idx;
+              build();
+            });
+          }));
+          body.append(ranges);
         }
         var list = $('<div class="uakino-online__list' + (items.length === 1 ? ' uakino-online__list--single' : '') + '"></div>');
         var lastWatched = null;
-        var lastKey = choice().last;
-        items.forEach(function (item, index) {
+        var jumpEl = null;
+        items.forEach(function (item, i) {
+          var index = startIndex + i;
           var el = $('<div class="uakino-online__item selector">' + '<div class="uakino-online__thumb"><div class="uakino-online__thumb-shade"></div><div class="uakino-online__num"></div><div class="uakino-online__timeline"></div></div>' + '<div class="uakino-online__title"></div><div class="uakino-online__info"></div></div>');
           if (backdrop) el.find('.uakino-online__thumb').css('background-image', 'url("' + backdrop + '")').addClass('uakino-online__thumb--fallback');
           if (item.episode) el.find('.uakino-online__num').text(item.episode);
@@ -2575,17 +2638,21 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
           var key = viewKey(item);
           if (isViewed(key) || view && view.percent >= 85) showViewed(el);
           if (key === lastKey) lastWatched = el[0];
+          if (jumpTo === index) jumpEl = el[0];
           el.on('hover:enter', function () {
-            play(items, index, el);
+            play(all, index, el);
           });
           list.append(focusable(el));
         });
         body.append(list);
         decorateEpisodes(list);
         if (lastWatched && !keepFocus) last = lastWatched;
+        if (jumpEl) last = jumpEl;
+        jumpTo = null;
+        upTargets.range = rangeBtn ? rangeBtn[0] : null;
         upTargets.tab = tabBtn ? tabBtn[0] : null;
         upTargets.filter = sourceBtn ? sourceBtn[0] : null;
-        var keep = keepFocus === 'tab' ? tabBtn : keepFocus === 'voice' ? voiceBtn : keepFocus === 'source' ? sourceBtn : null;
+        var keep = keepFocus === 'tab' ? tabBtn : keepFocus === 'voice' ? voiceBtn : keepFocus === 'source' ? sourceBtn : keepFocus === 'range' ? rangeBtn : null;
         if (keep) last = keep[0];
         keepFocus = '';
         self.activity.loader(false);
@@ -2680,8 +2747,9 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
           up: function up() {
             if (Navigator.canmove('up')) return Navigator.move('up');
             var inList = last && $(last).closest('.uakino-online__list').length;
+            var inRanges = last && $(last).closest('.uakino-online__ranges').length;
             var inTabs = last && $(last).closest('.uakino-online__tabs').length;
-            var target = inList ? upTargets.tab || upTargets.filter : inTabs ? upTargets.filter : null;
+            var target = inList ? upTargets.range || upTargets.tab || upTargets.filter : inRanges ? upTargets.tab || upTargets.filter : inTabs ? upTargets.filter : null;
             if (target) {
               last = target;
               Lampa.Controller.collectionFocus(target, scroll.render());
@@ -2838,7 +2906,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
         page: 1
       });
     }
-    var CSS = '<style>' + '.uakino-online{background:#0b0d11}' + '.uakino-online__body{padding:0 2.2em 2em}' + '.uakino-online__head{position:relative;display:flex;align-items:flex-end;min-height:19em;margin:0 -2.2em 1.6em;padding:4em 2.2em 1.8em;overflow:hidden}' + '.uakino-online__hero-bg{position:absolute;left:0;top:0;right:0;bottom:0;background-size:cover;background-position:center 25%;opacity:.6}' + '.uakino-online__hero-shade{position:absolute;left:0;top:0;right:0;bottom:0;background:linear-gradient(to top,#0b0d11 0%,rgba(11,13,17,.75) 40%,rgba(11,13,17,.1) 100%),linear-gradient(to right,rgba(11,13,17,.9) 0%,rgba(11,13,17,0) 65%)}' + '.uakino-online__poster{position:relative;width:7.5em;height:11.25em;object-fit:cover;border-radius:.9em;margin-right:1.8em;box-shadow:0 1.2em 2.4em rgba(0,0,0,.55);flex-shrink:0}' + '.uakino-online__head-text{position:relative;max-width:62%}' + '.uakino-online__head-title{font-size:2.7em;font-weight:700;line-height:1.08;letter-spacing:-.01em}' + '.uakino-online__head-sub{margin-top:.7em;font-size:1.05em;color:rgba(255,255,255,.75)}' + '.uakino-online__badge{display:inline-block;margin-left:.6em;padding:.05em .45em;border:1px solid rgba(255,255,255,.7);border-radius:.3em;font-size:.8em;font-weight:700;color:#fff;vertical-align:.1em}' + '.uakino-online__head-descr{margin-top:.8em;line-height:1.45;color:rgba(255,255,255,.68);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}' + '.uakino-online__filters,.uakino-online__tabs{display:flex;flex-wrap:wrap;margin-bottom:.9em}' + '.uakino-online__filter{padding:.7em 1.5em;margin:0 .8em .8em 0;border-radius:2em;background:rgba(255,255,255,.13);font-weight:500;transition:transform .15s,background-color .15s}' + '.uakino-online__tabs .uakino-online__filter{padding:.55em 1.3em;background:rgba(255,255,255,.06)}' + '.uakino-online__filter--active{background:rgba(255,255,255,.3) !important;font-weight:600}' + '.uakino-online__filter.focus{background:#fff !important;color:#0b0d11;transform:scale(1.06)}' + '.uakino-online__list{display:flex;flex-wrap:wrap;margin:.4em -.7em 0}' + '.uakino-online__item{position:relative;width:calc(25% - 1.4em);margin:0 .7em 1.8em;transition:transform .2s}' + '.uakino-online__list--single .uakino-online__item{width:calc(45% - 1.4em)}' + '.uakino-online__thumb{position:relative;padding-top:56.25%;border-radius:1em;background:#1b1f27 center/cover no-repeat;overflow:hidden;box-shadow:0 .6em 1.4em rgba(0,0,0,.4)}' + '.uakino-online__thumb--fallback{filter:brightness(.55)}' + '.uakino-online__thumb-shade{position:absolute;left:0;right:0;bottom:0;height:55%;background:linear-gradient(to top,rgba(0,0,0,.75),rgba(0,0,0,0))}' + '.uakino-online__num{position:absolute;left:.55em;bottom:.35em;font-size:1.9em;font-weight:800;color:#fff;text-shadow:0 .1em .4em rgba(0,0,0,.6)}' + '.uakino-online__timeline{position:absolute;left:.8em;right:.8em;bottom:.5em}' + '.uakino-online__viewed{position:absolute;right:.6em;top:.6em;width:1.6em;height:1.6em;padding:.25em;border-radius:50%;background:rgba(0,0,0,.6);color:#fff}' + '.uakino-online__title{margin-top:.75em;font-size:1.05em;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' + '.uakino-online__info{margin-top:.25em;font-size:.85em;color:rgba(255,255,255,.55);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' + '.uakino-online__item--viewed .uakino-online__title{color:rgba(255,255,255,.7)}' + '.uakino-online__item.focus{transform:scale(1.08);z-index:2}' + '.uakino-online__item.focus .uakino-online__thumb{box-shadow:0 0 0 .22em #fff,0 1.4em 2.8em rgba(0,0,0,.65)}' + '.uakino-online__item.focus .uakino-online__thumb--fallback{filter:brightness(.75)}' + '.uakino-online__empty{padding:2.5em 0;text-align:center;color:rgba(255,255,255,.6)}' + '</style>';
+    var CSS = '<style>' + '.uakino-online{background:#0b0d11}' + '.uakino-online__body{padding:0 2.2em 2em}' + '.uakino-online__head{position:relative;display:flex;align-items:flex-end;min-height:19em;margin:0 -2.2em 1.6em;padding:4em 2.2em 1.8em;overflow:hidden}' + '.uakino-online__hero-bg{position:absolute;left:0;top:0;right:0;bottom:0;background-size:cover;background-position:center 25%;opacity:.6}' + '.uakino-online__hero-shade{position:absolute;left:0;top:0;right:0;bottom:0;background:linear-gradient(to top,#0b0d11 0%,rgba(11,13,17,.75) 40%,rgba(11,13,17,.1) 100%),linear-gradient(to right,rgba(11,13,17,.9) 0%,rgba(11,13,17,0) 65%)}' + '.uakino-online__poster{position:relative;width:7.5em;height:11.25em;object-fit:cover;border-radius:.9em;margin-right:1.8em;box-shadow:0 1.2em 2.4em rgba(0,0,0,.55);flex-shrink:0}' + '.uakino-online__head-text{position:relative;max-width:62%}' + '.uakino-online__head-title{font-size:2.7em;font-weight:700;line-height:1.08;letter-spacing:-.01em}' + '.uakino-online__head-sub{margin-top:.7em;font-size:1.05em;color:rgba(255,255,255,.75)}' + '.uakino-online__badge{display:inline-block;margin-left:.6em;padding:.05em .45em;border:1px solid rgba(255,255,255,.7);border-radius:.3em;font-size:.8em;font-weight:700;color:#fff;vertical-align:.1em}' + '.uakino-online__head-descr{margin-top:.8em;line-height:1.45;color:rgba(255,255,255,.68);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}' + '.uakino-online__filters,.uakino-online__tabs{display:flex;flex-wrap:wrap;margin-bottom:.9em}' + '.uakino-online__filter{padding:.7em 1.5em;margin:0 .8em .8em 0;border-radius:2em;background:rgba(255,255,255,.13);font-weight:500;transition:transform .15s,background-color .15s}' + '.uakino-online__tabs .uakino-online__filter{padding:.55em 1.3em;background:rgba(255,255,255,.06)}' + '.uakino-online__ranges .uakino-online__filter{padding:.45em 1.1em;font-size:.9em}' + '.uakino-online__filter--active{background:rgba(255,255,255,.3) !important;font-weight:600}' + '.uakino-online__filter.focus{background:#fff !important;color:#0b0d11;transform:scale(1.06)}' + '.uakino-online__list{display:flex;flex-wrap:wrap;margin:.4em -.7em 0}' + '.uakino-online__item{position:relative;width:calc(25% - 1.4em);margin:0 .7em 1.8em;transition:transform .2s}' + '.uakino-online__list--single .uakino-online__item{width:calc(45% - 1.4em)}' + '.uakino-online__thumb{position:relative;padding-top:56.25%;border-radius:1em;background:#1b1f27 center/cover no-repeat;overflow:hidden;box-shadow:0 .6em 1.4em rgba(0,0,0,.4)}' + '.uakino-online__thumb--fallback{filter:brightness(.55)}' + '.uakino-online__thumb-shade{position:absolute;left:0;right:0;bottom:0;height:55%;background:linear-gradient(to top,rgba(0,0,0,.75),rgba(0,0,0,0))}' + '.uakino-online__num{position:absolute;left:.55em;bottom:.35em;font-size:1.9em;font-weight:800;color:#fff;text-shadow:0 .1em .4em rgba(0,0,0,.6)}' + '.uakino-online__timeline{position:absolute;left:.8em;right:.8em;bottom:.5em}' + '.uakino-online__viewed{position:absolute;right:.6em;top:.6em;width:1.6em;height:1.6em;padding:.25em;border-radius:50%;background:rgba(0,0,0,.6);color:#fff}' + '.uakino-online__title{margin-top:.75em;font-size:1.05em;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' + '.uakino-online__info{margin-top:.25em;font-size:.85em;color:rgba(255,255,255,.55);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' + '.uakino-online__item--viewed .uakino-online__title{color:rgba(255,255,255,.7)}' + '.uakino-online__item.focus{transform:scale(1.08);z-index:2}' + '.uakino-online__item.focus .uakino-online__thumb{box-shadow:0 0 0 .22em #fff,0 1.4em 2.8em rgba(0,0,0,.65)}' + '.uakino-online__item.focus .uakino-online__thumb--fallback{filter:brightness(.75)}' + '.uakino-online__empty{padding:2.5em 0;text-align:center;color:rgba(255,255,255,.6)}' + '</style>';
     function addButtons(e) {
       var render = e.object.activity.render();
       if (render.find('.view--uakino').length) return;
