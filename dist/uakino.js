@@ -1,6 +1,10 @@
 /* UAKino для Lampa — зібрано build.js з plugin/uakino.js та lib/ (ES5). Не редагуйте вручну. */
 (function () {
 function _typeof(o) { "@babel/helpers - typeof"; return _typeof = "function" == typeof Symbol && "symbol" == typeof Symbol.iterator ? function (o) { return typeof o; } : function (o) { return o && "function" == typeof Symbol && o.constructor === Symbol && o !== Symbol.prototype ? "symbol" : typeof o; }, _typeof(o); }
+function _slicedToArray(r, e) { return _arrayWithHoles(r) || _iterableToArrayLimit(r, e) || _unsupportedIterableToArray(r, e) || _nonIterableRest(); }
+function _nonIterableRest() { throw new TypeError("Invalid attempt to destructure non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method."); }
+function _iterableToArrayLimit(r, l) { var t = null == r ? null : "undefined" != typeof Symbol && r[Symbol.iterator] || r["@@iterator"]; if (null != t) { var e, n, i, u, a = [], f = !0, o = !1; try { if (i = (t = t.call(r)).next, 0 === l) { if (Object(t) !== t) return; f = !1; } else for (; !(f = (e = i.call(t)).done) && (a.push(e.value), a.length !== l); f = !0); } catch (r) { o = !0, n = r; } finally { try { if (!f && null != t.return && (u = t.return(), Object(u) !== u)) return; } finally { if (o) throw n; } } return a; } }
+function _arrayWithHoles(r) { if (Array.isArray(r)) return r; }
 function _classCallCheck(a, n) { if (!(a instanceof n)) throw new TypeError("Cannot call a class as a function"); }
 function _defineProperties(e, r) { for (var t = 0; t < r.length; t++) { var o = r[t]; o.enumerable = o.enumerable || !1, o.configurable = !0, "value" in o && (o.writable = !0), Object.defineProperty(e, _toPropertyKey(o.key), o); } }
 function _createClass(e, r, t) { return r && _defineProperties(e.prototype, r), t && _defineProperties(e, t), Object.defineProperty(e, "prototype", { writable: !1 }), e; }
@@ -35,7 +39,8 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
       "lib/client.js": [{
         "./parse": "lib/parse.js",
         "./online": "lib/online.js",
-        "./jackett": "lib/jackett.js"
+        "./jackett": "lib/jackett.js",
+        "./search": "lib/search.js"
       }, function (module, exports, require) {
         'use strict';
         var parse = require('./parse');
@@ -43,6 +48,8 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
           createOnline = _require.createOnline;
         var _require2 = require('./jackett'),
           toJackett = _require2.toJackett;
+        var _require3 = require('./search'),
+          searchDle = _require3.searchDle;
         function createClient(_ref) {
           var host = _ref.host,
             fetchText = _ref.fetchText,
@@ -56,9 +63,9 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
           }
           function _searchSite() {
             _searchSite = _asyncToGenerator(_regenerator().m(function _callee(query) {
-              var q, key, list, body, _t, _t2, _t3;
+              var q, key, list;
               return _regenerator().w(function (_context) {
-                while (1) switch (_context.p = _context.n) {
+                while (1) switch (_context.n) {
                   case 0:
                     q = String(query || '').trim();
                     if (!(q.length < 2)) {
@@ -74,35 +81,14 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                     }
                     return _context.a(2, searches.get(key));
                   case 2:
-                    _t = parse;
                     _context.n = 3;
-                    return fetchText(host + '/index.php?do=search&subaction=search&story=' + encodeURIComponent(q), {});
+                    return searchDle(host, q, fetchText);
                   case 3:
-                    list = _t.parseList.call(_t, _context.v, host);
-                    if (list.length) {
-                      _context.n = 7;
-                      break;
-                    }
-                    body = 'do=search&subaction=search&search_start=0&full_search=0&result_from=1&story=' + encodeURIComponent(q);
-                    _context.p = 4;
-                    _t2 = parse;
-                    _context.n = 5;
-                    return fetchText(host + '/index.php?do=search', {
-                      method: 'POST',
-                      body: body
-                    });
-                  case 5:
-                    list = _t2.parseList.call(_t2, _context.v, host);
-                    _context.n = 7;
-                    break;
-                  case 6:
-                    _context.p = 6;
-                    _t3 = _context.v;
-                  case 7:
+                    list = _context.v;
                     searches.set(key, list);
                     return _context.a(2, list);
                 }
-              }, _callee, null, [[4, 6]]);
+              }, _callee);
             }));
             return _searchSite.apply(this, arguments);
           }
@@ -111,7 +97,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
           }
           function _page() {
             _page = _asyncToGenerator(_regenerator().m(function _callee2(url) {
-              var _t4, _t5, _t6;
+              var _t, _t2, _t3;
               return _regenerator().w(function (_context2) {
                 while (1) switch (_context2.n) {
                   case 0:
@@ -119,13 +105,13 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                       _context2.n = 2;
                       break;
                     }
-                    _t4 = pages;
-                    _t5 = url;
-                    _t6 = parse;
+                    _t = pages;
+                    _t2 = url;
+                    _t3 = parse;
                     _context2.n = 1;
                     return fetchText(url, {});
                   case 1:
-                    _t4.set.call(_t4, _t5, _t6.parsePage.call(_t6, _context2.v, url, host));
+                    _t.set.call(_t, _t2, _t3.parsePage.call(_t3, _context2.v, url, host));
                   case 2:
                     return _context2.a(2, pages.get(url));
                 }
@@ -138,7 +124,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
           }
           function _torrents() {
             _torrents = _asyncToGenerator(_regenerator().m(function _callee3(_ref2) {
-              var _ref2$title, title, _ref2$original, original, _ref2$query, query, _ref2$year, year, titles, found, lastError, _iterator, _step, q, _iterator2, _step2, item, list, relevant, loaded, out, y, yearOf, _t7, _t8, _t9;
+              var _ref2$title, title, _ref2$original, original, _ref2$query, query, _ref2$year, year, titles, found, lastError, _iterator, _step, q, _iterator2, _step2, item, list, relevant, loaded, out, y, yearOf, _t4, _t5, _t6;
               return _regenerator().w(function (_context3) {
                 while (1) switch (_context3.p = _context3.n) {
                   case 0:
@@ -164,11 +150,11 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                     }
                     q = _step.value;
                     _context3.p = 4;
-                    _t7 = _createForOfIteratorHelper;
+                    _t4 = _createForOfIteratorHelper;
                     _context3.n = 5;
                     return searchSite(q);
                   case 5:
-                    _iterator2 = _t7(_context3.v);
+                    _iterator2 = _t4(_context3.v);
                     try {
                       for (_iterator2.s(); !(_step2 = _iterator2.n()).done;) {
                         item = _step2.value;
@@ -185,8 +171,8 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                     break;
                   case 6:
                     _context3.p = 6;
-                    _t8 = _context3.v;
-                    lastError = _t8;
+                    _t5 = _context3.v;
+                    lastError = _t5;
                   case 7:
                     _context3.n = 3;
                     break;
@@ -195,8 +181,8 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                     break;
                   case 9:
                     _context3.p = 9;
-                    _t9 = _context3.v;
-                    _iterator.e(_t9);
+                    _t6 = _context3.v;
+                    _iterator.e(_t6);
                   case 10:
                     _context3.p = 10;
                     _iterator.f();
@@ -734,7 +720,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
           }
           function _findPages() {
             _findPages = _asyncToGenerator(_regenerator().m(function _callee5(_ref4) {
-              var _ref4$title, title, _ref4$original, original, _ref4$query, query, titles, found, lastError, _iterator4, _step4, q, _iterator5, _step5, item, list, best, _t0, _t1, _t10;
+              var _ref4$title, title, _ref4$original, original, _ref4$query, query, titles, found, lastError, _iterator4, _step4, q, _iterator5, _step5, item, list, best, _t7, _t8, _t9;
               return _regenerator().w(function (_context5) {
                 while (1) switch (_context5.p = _context5.n) {
                   case 0:
@@ -754,11 +740,11 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                     }
                     q = _step4.value;
                     _context5.p = 3;
-                    _t0 = _createForOfIteratorHelper;
+                    _t7 = _createForOfIteratorHelper;
                     _context5.n = 4;
                     return searchSite(q);
                   case 4:
-                    _iterator5 = _t0(_context5.v);
+                    _iterator5 = _t7(_context5.v);
                     try {
                       for (_iterator5.s(); !(_step5 = _iterator5.n()).done;) {
                         item = _step5.value;
@@ -776,8 +762,8 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                     break;
                   case 5:
                     _context5.p = 5;
-                    _t1 = _context5.v;
-                    lastError = _t1;
+                    _t8 = _context5.v;
+                    lastError = _t8;
                   case 6:
                     _context5.n = 2;
                     break;
@@ -786,8 +772,8 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                     break;
                   case 8:
                     _context5.p = 8;
-                    _t10 = _context5.v;
-                    _iterator4.e(_t10);
+                    _t9 = _context5.v;
+                    _iterator4.e(_t9);
                   case 9:
                     _context5.p = 9;
                     _iterator4.f();
@@ -912,7 +898,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                   case 0:
                     url = checkUrl(url, false);
                     return _context9.a(2, cache.wrap('page:' + url, _asyncToGenerator(_regenerator().m(function _callee8() {
-                      var html, page, season, players, items, ajax, text, body, data, _iterator6, _step6, src, s, _t11, _t12, _t13;
+                      var html, page, season, players, items, ajax, text, body, data, _iterator6, _step6, src, s, _t0, _t1, _t10;
                       return _regenerator().w(function (_context8) {
                         while (1) switch (_context8.p = _context8.n) {
                           case 0:
@@ -957,12 +943,12 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                             break;
                           case 4:
                             _context8.p = 4;
-                            _t11 = _context8.v;
+                            _t0 = _context8.v;
                             if (players.iframes.length) {
                               _context8.n = 5;
                               break;
                             }
-                            throw _t11;
+                            throw _t0;
                           case 5:
                             if (items.length) {
                               _context8.n = 15;
@@ -997,7 +983,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                             break;
                           case 10:
                             _context8.p = 10;
-                            _t12 = _context8.v;
+                            _t1 = _context8.v;
                           case 11:
                             _context8.n = 7;
                             break;
@@ -1006,8 +992,8 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                             break;
                           case 13:
                             _context8.p = 13;
-                            _t13 = _context8.v;
-                            _iterator6.e(_t13);
+                            _t10 = _context8.v;
+                            _iterator6.e(_t10);
                           case 14:
                             _context8.p = 14;
                             _iterator6.f();
@@ -1035,7 +1021,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
           }
           function _route() {
             _route = _asyncToGenerator(_regenerator().m(function _callee0(pathname, params) {
-              var _t14;
+              var _t11;
               return _regenerator().w(function (_context0) {
                 while (1) switch (_context0.n) {
                   case 0:
@@ -1050,9 +1036,9 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                       query: params.get('query') || params.get('Query') || ''
                     });
                   case 1:
-                    _t14 = _context0.v;
+                    _t11 = _context0.v;
                     return _context0.a(2, {
-                      pages: _t14
+                      pages: _t11
                     });
                   case 2:
                     if (!(pathname === '/online/page')) {
@@ -1129,6 +1115,100 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
         }
         module.exports = {
           toJackett: toJackett
+        };
+      }],
+      "lib/search.js": [{
+        "./parse": "lib/parse.js"
+      }, function (module, exports, require) {
+        'use strict';
+        var parse = require('./parse');
+        function simplify(q) {
+          return q.split(/[:–—(]/)[0].replace(/[^0-9a-zA-ZÀ-ɏЀ-ӿ ]+/g, ' ').replace(/\s+/g, ' ').trim();
+        }
+        function searchDle(_x10, _x11, _x12) {
+          return _searchDle.apply(this, arguments);
+        }
+        function _searchDle() {
+          _searchDle = _asyncToGenerator(_regenerator().m(function _callee1(host, query, fetchText) {
+            var q, queries, short, errors, ok, _i, _queries, story, attempts, _i2, _attempts, _attempts$_i, method, url, body, list, err, _t12, _t13;
+            return _regenerator().w(function (_context1) {
+              while (1) switch (_context1.p = _context1.n) {
+                case 0:
+                  q = String(query || '').trim();
+                  if (!(q.length < 2)) {
+                    _context1.n = 1;
+                    break;
+                  }
+                  return _context1.a(2, []);
+                case 1:
+                  queries = [q];
+                  short = simplify(q);
+                  if (short.length >= 3 && short.toLowerCase() !== q.toLowerCase()) queries.push(short);
+                  errors = [];
+                  ok = false;
+                  _i = 0, _queries = queries;
+                case 2:
+                  if (!(_i < _queries.length)) {
+                    _context1.n = 10;
+                    break;
+                  }
+                  story = _queries[_i];
+                  attempts = [['POST', host + '/index.php?do=search', 'do=search&subaction=search&search_start=0&full_search=0&result_from=1&story=' + encodeURIComponent(story)], ['GET', host + '/index.php?do=search&subaction=search&story=' + encodeURIComponent(story), null]];
+                  _i2 = 0, _attempts = attempts;
+                case 3:
+                  if (!(_i2 < _attempts.length)) {
+                    _context1.n = 9;
+                    break;
+                  }
+                  _attempts$_i = _slicedToArray(_attempts[_i2], 3), method = _attempts$_i[0], url = _attempts$_i[1], body = _attempts$_i[2];
+                  _context1.p = 4;
+                  _t12 = parse;
+                  _context1.n = 5;
+                  return fetchText(url, method === 'POST' ? {
+                    method: method,
+                    body: body
+                  } : {});
+                case 5:
+                  list = _t12.parseList.call(_t12, _context1.v, host);
+                  ok = true;
+                  if (!list.length) {
+                    _context1.n = 6;
+                    break;
+                  }
+                  return _context1.a(2, list);
+                case 6:
+                  _context1.n = 8;
+                  break;
+                case 7:
+                  _context1.p = 7;
+                  _t13 = _context1.v;
+                  errors.push(method + ': ' + _t13.message);
+                case 8:
+                  _i2++;
+                  _context1.n = 3;
+                  break;
+                case 9:
+                  _i++;
+                  _context1.n = 2;
+                  break;
+                case 10:
+                  if (ok) {
+                    _context1.n = 11;
+                    break;
+                  }
+                  err = new Error('пошук на uakino не вдався (' + errors.join('; ') + ')');
+                  err.status = 502;
+                  throw err;
+                case 11:
+                  return _context1.a(2, []);
+              }
+            }, _callee1, null, [[4, 7]]);
+          }));
+          return _searchDle.apply(this, arguments);
+        }
+        module.exports = {
+          searchDle: searchDle,
+          simplify: simplify
         };
       }]
     };

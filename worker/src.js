@@ -7,6 +7,7 @@ const parse = require('../lib/parse');
 const { parseTorrent } = require('../lib/bencode');
 const { toJackett } = require('../lib/jackett');
 const { createOnline } = require('../lib/online');
+const { searchDle } = require('../lib/search');
 
 const DEFAULT_HOST = 'https://uakino.best';
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
@@ -73,14 +74,7 @@ async function cached(key, ttl, ctx, fn) {
 
 async function searchSite(cfg, ctx, q) {
   return cached('search:' + cfg.host + ':' + q.toLowerCase(), 1800, ctx, async () => {
-    const res = await request(cfg, cfg.host + '/index.php?do=search&subaction=search&story=' + encodeURIComponent(q));
-    let list = parse.parseList(await res.text(), cfg.host);
-    if (!list.length) {
-      const body = new URLSearchParams({ do: 'search', subaction: 'search', search_start: '0', full_search: '0', result_from: '1', story: q }).toString();
-      try {
-        list = parse.parseList(await (await request(cfg, cfg.host + '/index.php?do=search', { method: 'POST', body })).text(), cfg.host);
-      } catch (e) { /* лишаємо порожній список */ }
-    }
+    const list = await searchDle(cfg.host, q, async (u, o) => (await request(cfg, u, o)).text());
     return list;
   });
 }

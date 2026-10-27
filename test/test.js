@@ -69,9 +69,16 @@ function startUpstream() {
     if (req.method === 'OPTIONS') { res.statusCode = 204; return res.end(); }
     const u = new URL(req.url, 'http://x');
     const p = decodeURIComponent(u.pathname);
-    if (p === '/index.php' && u.searchParams.get('story')) {
-      res.setHeader('Content-Type', 'text/html; charset=utf-8');
-      return res.end(u.searchParams.get('story').indexOf('потенціал') >= 0 || u.searchParams.get('story') === 'High Potential' ? read('search.html') : '<html></html>');
+    if (p === '/index.php' && (u.searchParams.get('story') || req.method === 'POST')) {
+      // Як справжній DLE: і GET, і POST-форма пошуку.
+      let body = '';
+      req.on('data', (c) => { body += c; });
+      req.on('end', () => {
+        const story = req.method === 'POST' ? new URLSearchParams(body).get('story') || '' : u.searchParams.get('story');
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.end(story.indexOf('потенціал') >= 0 || story === 'High Potential' ? read('search.html') : '<html></html>');
+      });
+      return;
     }
     if (p === '/seriesss/drama_series/25998-vysokyy-potencial-1-sezon.html') return res.end(read('page.html'));
     if (p === '/seriesss/drama_series/27001-vysokyy-potencial-2-sezon.html') return res.end('<h1>Високий потенціал (Сезон 2)</h1><p>Торентів немає</p><iframe id="pre" src="' + base + '/serial/9" allowfullscreen></iframe><iframe src="https://www.youtube.com/embed/x"></iframe>');
@@ -162,6 +169,34 @@ test('parsePage: посилання з прикладу користувача',
 test('normalizeTitle', () => {
   assert.strictEqual(parse.normalizeTitle('Високий  Потенціал: (Сезон 1)'), 'високий потенціал сезон 1');
   assert.strictEqual(parse.normalizeTitle('Ёлки'), 'елки');
+});
+
+test('searchDle: POST, потім GET, потім коротший запит; помилка лише якщо все впало', async () => {
+  const { searchDle, simplify } = require('../lib/search');
+  const host = 'https://uakino.best';
+  const html = read('search.html');
+  assert.strictEqual(simplify('Fall 2: Deadpoint'), 'Fall 2');
+
+  const calls = [];
+  const res = await searchDle(host, 'Високий потенціал', async (url, o) => {
+    calls.push((o.method || 'GET') + ' ' + url);
+    if (o.method === 'POST') { const e = new Error('Внутрішня помилка сервера. [500]'); e.status = 500; throw e; }
+    return html;
+  });
+  assert.strictEqual(res.length, 3);
+  assert.deepStrictEqual(calls.map((c) => c.split(' ')[0]), ['POST', 'GET']);
+  assert.ok(calls[0].endsWith('/index.php?do=search'));
+
+  const tried = [];
+  const short = await searchDle(host, 'Fall 2: Deadpoint', async (url, o) => {
+    tried.push((o.body || url).match(/story=([^&]*)/)[1]);
+    return /story=Fall%202(&|$)/.test(o.body || url) ? html : '<html></html>';
+  });
+  assert.strictEqual(short.length, 3);
+  assert.deepStrictEqual(tried.map(decodeURIComponent), ['Fall 2: Deadpoint', 'Fall 2: Deadpoint', 'Fall 2']);
+
+  await assert.rejects(searchDle(host, 'x y z', async () => { throw new Error('HTTP 500'); }), /POST: HTTP 500; GET: HTTP 500/);
+  assert.deepStrictEqual(await searchDle(host, 'нема', async () => '<html></html>'), []);
 });
 
 // ---------------- bencode ----------------
