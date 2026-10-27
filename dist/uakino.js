@@ -1081,7 +1081,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                   case 0:
                     url = checkUrl(url, false);
                     return _context10.a(2, cache.wrap('page:' + url, _asyncToGenerator(_regenerator().m(function _callee0() {
-                      var html, page, season, players, items, ajax, text, body, data, errors, inline, st, n, _iterator7, _step7, _loop2, diag, _t11, _t12;
+                      var html, page, season, players, items, ajax, text, body, data, errors, inline, st, n, _iterator7, _step7, _loop2, onlyTrailer, diag, _t11, _t12;
                       return _regenerator().w(function (_context1) {
                         while (1) switch (_context1.p = _context1.n) {
                           case 0:
@@ -1227,9 +1227,28 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                             return _context1.f(11);
                           case 12:
                             if (items.length) {
+                              _context1.n = 15;
+                              break;
+                            }
+                            onlyTrailer = players.seen.length > 0 && players.seen.every(function (h) {
+                              return /youtube|youtu\.be/i.test(h);
+                            });
+                            if (!/пройдіть\s+авторизацію|змініть\s+країну|увійдіть,?\s+щоб\s+дивитис|доступн\w*\s+лише\s+(для\s+)?зареєстрован/i.test(parse.stripTags(html))) {
                               _context1.n = 13;
                               break;
                             }
+                            throw Object.assign(new Error(name + ': сайт показує лише трейлер — серії доступні тільки після входу в акаунт на сайті'), {
+                              status: 403
+                            });
+                          case 13:
+                            if (!(onlyTrailer || /soon-tv|скоро\s+(на\s+сайті|вийде)|очікуєм/i.test(html))) {
+                              _context1.n = 14;
+                              break;
+                            }
+                            throw Object.assign(new Error(name + ': на сторінці поки лише трейлер — серії з озвучкою ще не вийшли'), {
+                              status: 404
+                            });
+                          case 14:
                             diag = [];
                             if (errors.length) diag.push(errors.slice(0, 3).join('; '));else if (players.iframes.length) diag.push('плеєри: ' + players.iframes.length);
                             diag.push('iframe/хости: ' + (players.seen.length ? players.seen.slice(0, 6).join(', ') : 'немає'));
@@ -1237,7 +1256,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                             throw Object.assign(new Error(name + ': відео на сторінці не знайдено (' + diag.join('; ') + ')'), {
                               status: 404
                             });
-                          case 13:
+                          case 15:
                             return _context1.a(2, {
                               url: url,
                               title: page.title,

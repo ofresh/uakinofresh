@@ -474,6 +474,12 @@ test('інші сайти: пошук, назви з карток, плеєри 
   const d2 = await fix.online.loadPage(p2[0].url);
   assert.deepStrictEqual(d2.items.map((i) => [i.group, i.stream.url, Object.keys(i.stream.quality)]), [['UAFlix', 'https://zetvideo.net/v/1080.m3u8', ['1080p', '720p']]]);
 
+  // UAFlix без доступу: трейлер замість плеєра і прохання авторизуватися.
+  SITES['https://uafix.net/serials/locked/'] = '<div id="fplayer"><div class="video-box"><iframe src="https://www.youtube.com/embed/x"></iframe></div><div><span>Якщо Ви бачите тільки трейлер або плеєр не працює, тоді пройдіть авторизацію або змініть країну перегляду за допомогою ВПН!</span></div></div>';
+  await assert.rejects(fix.online.loadPage('https://uafix.net/serials/locked/'), /UAFlix: сайт показує лише трейлер — серії доступні тільки після входу/);
+  SITES['https://uafix.net/serials/soon/'] = '<iframe src="https://www.youtube.com/embed/y"></iframe>';
+  await assert.rejects(fix.online.loadPage('https://uafix.net/serials/soon/'), /UAFlix: на сторінці поки лише трейлер — серії з озвучкою ще не вийшли/);
+
   const ser = createClient({ source: get('uaserial'), fetchText: fakeFetch([]) });
   const p3 = await ser.online.findPages(q);
   assert.deepStrictEqual(p3.map((p) => [p.title, p.url]), [['Високий потенціал', 'https://uaserial.tv/serial-high-potential']]);
