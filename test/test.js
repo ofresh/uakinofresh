@@ -387,6 +387,8 @@ async function pluginFlow(mode) {
     assert.strictEqual(played.play.subtitles[0].label, 'Українські');
     assert.strictEqual(played.play.timeline.hash, 'h:12High Potential');
     assert.deepStrictEqual(played.types, ['function', 'string']);
+    // Запущена серія позначена «переглянуто».
+    assert.deepStrictEqual(await page.$$eval('.uakino-online__list .uakino-online__item', (els) => els.map((e) => !!e.querySelector('.uakino-online__viewed'))), [false, true]);
     const lazy = await page.evaluate(() => new Promise((resolve) => {
       const cell = window.__playlist[0];
       cell.url(() => resolve({ url: cell.url, q: cell.quality }));

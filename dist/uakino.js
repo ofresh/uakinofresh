@@ -1758,6 +1758,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
     var BUILT_IN_SERVER = '__UAKINO_SERVER__';
     if (BUILT_IN_SERVER.indexOf('__') === 0) BUILT_IN_SERVER = '';
     var ICON = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M12 2 3 6v6c0 5 3.8 9.7 9 10 5.2-.3 9-5 9-10V6l-9-4Zm0 4.2 2 4.3H10l2-4.3ZM8 12h8l-4 6-4-6Z"/></svg>';
+    var ICON_EYE = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="100%" height="100%"><path fill="currentColor" d="M12 5C6.5 5 2.7 9.2 1.5 12c1.2 2.8 5 7 10.5 7s9.3-4.2 10.5-7C21.3 9.2 17.5 5 12 5Zm0 11.5a4.5 4.5 0 1 1 0-9 4.5 4.5 0 0 1 0 9Zm0-2.5a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"/></svg>';
     var ICON_PLAY = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm-2 14.5v-9l7 4.5-7 4.5Z"/></svg>';
     function enc(v) {
       return encodeURIComponent(v || '');
@@ -1770,6 +1771,27 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
         year: String(date).slice(0, 4),
         serial: !!(movie.name || movie.first_air_date)
       };
+    }
+    function viewedList() {
+      var v = Lampa.Storage.get('uakino_viewed', '[]');
+      if (typeof v === 'string') {
+        try {
+          v = JSON.parse(v);
+        } catch (e) {
+          v = [];
+        }
+      }
+      return Object.prototype.toString.call(v) === '[object Array]' ? v : [];
+    }
+    function isViewed(key) {
+      return viewedList().indexOf(key) >= 0;
+    }
+    function markViewed(key) {
+      var v = viewedList();
+      if (v.indexOf(key) >= 0) return;
+      v.push(key);
+      if (v.length > 3000) v = v.slice(-3000);
+      Lampa.Storage.set('uakino_viewed', v);
     }
     function stopLoading() {
       if (Lampa.Loading && Lampa.Loading.stop) Lampa.Loading.stop();
@@ -2007,6 +2029,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
       var data = null;
       var pageError = '';
       var keepFocus = '';
+      var voiceRestored = false;
       function alive(fn) {
         return function (v) {
           if (!destroyed) fn(v);
@@ -2298,6 +2321,14 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
         }
         return Lampa.Utils.hash(base);
       }
+      function viewKey(item) {
+        return String(hashFor(item) || [info.original || info.title, item.season || 0, item.episode || 0].join(':'));
+      }
+      function showViewed(el) {
+        if (el.find('.uakino-online__viewed').length) return;
+        el.addClass('uakino-online__item--viewed');
+        el.append($('<div class="uakino-online__viewed">' + ICON_EYE + '</div>'));
+      }
       function timeline(item) {
         try {
           var hash = hashFor(item);
@@ -2310,6 +2341,11 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
         body.empty();
         last = null;
         var voices = currentVoices();
+        if (!voiceRestored && voices.length) {
+          voiceRestored = true;
+          var savedVoice = voices.indexOf(choice().voice);
+          if (savedVoice >= 0) cur.voice = savedVoice;
+        }
         if (cur.voice >= voices.length) cur.voice = 0;
         var src = sources[cur.source];
         var shown = src.pages[currentTab().page] || src.pages[0];
@@ -2379,6 +2415,8 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
           body.append($('<div class="uakino-online__empty"></div>').text('На цій сторінці немає відео. Виберіть інше джерело.'));
         }
         var list = $('<div class="uakino-online__list"></div>');
+        var lastWatched = null;
+        var lastKey = choice().last;
         items.forEach(function (item, index) {
           var el = $('<div class="uakino-online__item selector"><div class="uakino-online__title"></div><div class="uakino-online__info"></div><div class="uakino-online__timeline"></div></div>');
           el.find('.uakino-online__title').text(item.title || data.title);
@@ -2388,12 +2426,16 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
           el.find('.uakino-online__info').text(meta.join(' • '));
           var view = timeline(item);
           if (view && Lampa.Timeline.render) el.find('.uakino-online__timeline').append(Lampa.Timeline.render(view));
+          var key = viewKey(item);
+          if (isViewed(key) || view && view.percent >= 85) showViewed(el);
+          if (key === lastKey) lastWatched = el[0];
           el.on('hover:enter', function () {
-            play(items, index);
+            play(items, index, el);
           });
           list.append(focusable(el));
         });
         body.append(list);
+        if (lastWatched && !keepFocus) last = lastWatched;
         var keep = keepFocus === 'tab' ? tabBtn : keepFocus === 'voice' ? voiceBtn : keepFocus === 'source' ? sourceBtn : null;
         if (keep) last = keep[0];
         keepFocus = '';
@@ -2429,8 +2471,14 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
         if (view) p.timeline = view;
         return p;
       }
-      function play(items, index) {
+      function play(items, index, el) {
         var item = items[index];
+        markViewed(viewKey(item));
+        saveChoice({
+          last: viewKey(item),
+          manual: true
+        });
+        if (el) showViewed(el);
         var sourceId = sources[cur.source].id;
         var page = data;
         if (Lampa.Loading && Lampa.Loading.start) Lampa.Loading.start(function () {
@@ -2447,6 +2495,10 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
             };
             cell.url = function (call) {
               resolve(sourceId, page, it, function (s) {
+                markViewed(viewKey(it));
+                saveChoice({
+                  last: viewKey(it)
+                });
                 var p = playerItem(it, s);
                 cell.url = p.url;
                 cell.quality = p.quality;
@@ -2605,7 +2657,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
         page: 1
       });
     }
-    var CSS = '<style>' + '.uakino-online__body{padding:0 1.5em 1.5em}' + '.uakino-online__head{display:flex;align-items:center;margin-bottom:1.2em}' + '.uakino-online__poster{width:5em;height:7.5em;object-fit:cover;border-radius:.6em;margin-right:1.2em;background:rgba(255,255,255,.05);flex-shrink:0}' + '.uakino-online__head-title{font-size:1.6em;font-weight:600}' + '.uakino-online__head-sub{margin-top:.4em;opacity:.6}' + '.uakino-online__filters,.uakino-online__tabs{display:flex;flex-wrap:wrap;margin-bottom:.5em}' + '.uakino-online__filter{padding:.6em 1.2em;margin:0 1em 1em 0;border-radius:1em;background:rgba(255,255,255,.1)}' + '.uakino-online__filter--active{background:rgba(255,255,255,.3)}' + '.uakino-online__list{display:block}' + '.uakino-online__item{display:block;padding:1em 1.2em;margin-bottom:.7em;border-radius:1em;background:rgba(0,0,0,.3)}' + '.uakino-online__filter.focus,.uakino-online__item.focus{background:#fff;color:#000}' + '.uakino-online__title{font-size:1.3em}' + '.uakino-online__info{margin-top:.3em;opacity:.6}' + '.uakino-online__empty{padding:2em 0;text-align:center;opacity:.7}' + '</style>';
+    var CSS = '<style>' + '.uakino-online__body{padding:0 1.5em 1.5em}' + '.uakino-online__head{display:flex;align-items:center;margin-bottom:1.2em}' + '.uakino-online__poster{width:5em;height:7.5em;object-fit:cover;border-radius:.6em;margin-right:1.2em;background:rgba(255,255,255,.05);flex-shrink:0}' + '.uakino-online__head-title{font-size:1.6em;font-weight:600}' + '.uakino-online__head-sub{margin-top:.4em;opacity:.6}' + '.uakino-online__filters,.uakino-online__tabs{display:flex;flex-wrap:wrap;margin-bottom:.5em}' + '.uakino-online__filter{padding:.6em 1.2em;margin:0 1em 1em 0;border-radius:1em;background:rgba(255,255,255,.1)}' + '.uakino-online__filter--active{background:rgba(255,255,255,.3)}' + '.uakino-online__list{display:block}' + '.uakino-online__item{display:block;position:relative;padding:1em 3.5em 1em 1.2em;margin-bottom:.7em;border-radius:1em;background:rgba(0,0,0,.3)}' + '.uakino-online__viewed{position:absolute;right:1.2em;top:50%;width:1.6em;height:1.6em;margin-top:-.8em;opacity:.85}' + '.uakino-online__item--viewed .uakino-online__title{opacity:.75}' + '.uakino-online__filter.focus,.uakino-online__item.focus{background:#fff;color:#000}' + '.uakino-online__title{font-size:1.3em}' + '.uakino-online__info{margin-top:.3em;opacity:.6}' + '.uakino-online__empty{padding:2em 0;text-align:center;opacity:.7}' + '</style>';
     function addButtons(e) {
       var render = e.object.activity.render();
       if (render.find('.view--uakino').length) return;
