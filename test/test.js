@@ -334,7 +334,7 @@ async function pluginFlow(mode) {
     page.on('pageerror', (e) => errors.push(e.message));
     await page.goto(base + '/health');
     await page.setContent('<div id="full"><div class="full-start-new__buttons"><div class="full-start__button selector view--torrent">Торренти</div></div></div>');
-    await page.evaluate(([preset, fail]) => { window.__preset = preset; window.__nativeFail = fail; }, [mode === 'server' ? { uakino_mode: 'server' } : { uakino_host: up.base }, mode === 'fallback']);
+    await page.evaluate(([preset, fail]) => { window.__preset = preset; window.__nativeFail = fail; }, [mode === 'server' ? { uakino_mode: 'server' } : { uakino_host: up.base, uakino_src_uaserials: false, uakino_src_uaflix: false, uakino_src_eneyida: false, uakino_src_uaserial: false }, mode === 'fallback']);
     await page.addScriptTag({ path: path.join(__dirname, 'lampa-stub.js') });
     await page.addScriptTag({ url: base + '/uakino.js' });
 
@@ -367,7 +367,7 @@ async function pluginFlow(mode) {
     const list = await page.$$eval('.uakino-online__item', (els) => els.map((e) => e.querySelector('.uakino-online__title').textContent + ' | ' + e.querySelector('.uakino-online__info').textContent));
     assert.deepStrictEqual(list, ['1 серія | Сезон 1 • ТакТребаПродакшн', '2 серія | Сезон 1 • ТакТребаПродакшн']);
     const filters = await page.$$eval('.uakino-online__filter', (els) => els.map((e) => e.textContent));
-    assert.deepStrictEqual(filters, ['Сторінка: Сезон 1', 'Озвучка: ТакТребаПродакшн']);
+    assert.deepStrictEqual(filters, ['Джерело: UAKino · Сезон 1', 'Озвучка: ТакТребаПродакшн']);
     assert.strictEqual(await page.evaluate(() => window.__controller), 'content');
 
     // Вибір озвучки
@@ -399,7 +399,10 @@ async function pluginFlow(mode) {
 
     // Settings зареєстровано
     const settings = await page.evaluate(() => window.__settings);
-    assert.deepStrictEqual(settings, ['uakino', 'uakino_mode', 'uakino_host', 'uakino_server', 'uakino_apikey']);
+    assert.deepStrictEqual(settings, ['uakino', 'uakino_mode',
+      'uakino_src_uakino', 'uakino_src_uaserials', 'uakino_src_uaflix', 'uakino_src_eneyida', 'uakino_src_uaserial',
+      'uakino_host', 'uakino_host_uaserials', 'uakino_host_uaflix', 'uakino_host_eneyida', 'uakino_host_uaserial',
+      'uakino_server', 'uakino_apikey']);
 
     // У режимі «з пристрою» на парсер не йде жодного запиту про сайт.
     const natives = await page.evaluate(() => window.__native || 0);
@@ -416,6 +419,64 @@ async function pluginFlow(mode) {
 test('плагін Lampa (з пристрою): кнопки, торенти → Lampa.Torrent.start, онлайн → Lampa.Player', () => pluginFlow('direct'));
 test('плагін Lampa (через парсер): те саме через Worker/server.js', () => pluginFlow('server'));
 test('плагін Lampa (native не працює): автоматично через WebView', () => pluginFlow('fallback'));
+
+// ---------------- інші сайти ----------------
+
+// Розмітка карток пошуку — як на справжніх сайтах (перевірено на живих сторінках).
+const SITES = {
+  'https://uaserials.my/index.php?do=search': '<div class="short-item"><a class="short-img img-fit" href="https://uaserials.my/9488-vysokyi-potencial-1-2-sezon.html"><img src="/posters/9488.webp" alt="Високий потенціал"><div class="short-label"><span>1-2 сезон</span></div></a><div class="th-title">Високий потенціал</div><div class="th-title-oname">High Potential</div></div>',
+  'https://uaserials.my/9488-vysokyi-potencial-1-2-sezon.html': '<h1>Високий потенціал</h1><iframe class="lazyload" title="Трейлер" data-src="https://hdvbua.pro/trailer/9488"></iframe><div class="video_box"><iframe src="https://ashdi.vip/serial/777?season=1"></iframe></div>',
+  'https://ashdi.vip/serial/777?season=1': "<script>new Playerjs({id:'p', file:'[{\"title\":\"UAFlix\",\"folder\":[{\"title\":\"Сезон 1\",\"folder\":[{\"title\":\"Серія 1\",\"file\":\"https://cdn.example/u1.m3u8\"},{\"title\":\"Серія 2\",\"file\":\"https://cdn.example/u2.m3u8\"}]}]}]'});</script>",
+  'https://uafix.net/index.php?do=search': '<a class="sres-wrap clearfix" href="https://uafix.net/serials/visoki-potencial/"><div class="sres-img"><img src="/x.png" alt="Високий потенціал / High Potential"></div><div class="sres-text"><h2>Високий потенціал / Здібна / High Potential</h2><div class="sres-desc">Морган, матір-одиночка, вирощує трьох дітей.</div></div></a><a href="https://uafix.net/page/2/">2</a>',
+  'https://uafix.net/serials/visoki-potencial/': '<h1>Високий потенціал</h1><script>var player = new Playerjs({id:"player", file:"[1080p]https://zetvideo.net/v/1080.m3u8,[720p]https://zetvideo.net/v/720.m3u8"});</script>',
+  'https://uaserial.tv/search?query=': '<div class="item"><a href="/serial-high-potential" title="Високий потенціал"><img alt="Серіал \'Високий потенціал\' постер"></a></div><a href="/filters">Фільтри</a>',
+  'https://uaserial.tv/serial-high-potential': '<h1 class="title">Високий потенціал</h1><iframe src="https://www.youtube.com/embed/x"></iframe><iframe src="https://example-player.net/embed/1"></iframe>',
+  'https://example-player.net/embed/1': '<html>encrypted player</html>',
+};
+
+function fakeFetch(log) {
+  return async (url, o = {}) => {
+    log.push((o.method || 'GET') + ' ' + url);
+    for (const key of Object.keys(SITES)) {
+      if (url === key || (url.startsWith(key) && /search/.test(key))) return SITES[key];
+    }
+    const e = new Error('HTTP 404');
+    e.status = 404;
+    throw e;
+  };
+}
+
+test('інші сайти: пошук, назви з карток, плеєри ashdi/Playerjs і діагностика', async () => {
+  const { createClient, SOURCES } = require('../lib/client');
+  assert.deepStrictEqual(SOURCES.map((s) => s.id), ['uakino', 'uaserials', 'uaflix', 'eneyida', 'uaserial']);
+  const get = (id) => SOURCES.filter((s) => s.id === id)[0];
+  const q = { title: 'Високий потенціал', original: 'High Potential' };
+
+  const log = [];
+  const uas = createClient({ source: get('uaserials'), fetchText: fakeFetch(log) });
+  const p1 = await uas.online.findPages(q);
+  assert.deepStrictEqual(p1.map((p) => [p.title, p.url]), [['Високий потенціал', 'https://uaserials.my/9488-vysokyi-potencial-1-2-sezon.html']]);
+  const d1 = await uas.online.loadPage(p1[0].url);
+  assert.deepStrictEqual(d1.items.map((i) => [i.group, i.season, i.episode, i.stream.url]), [
+    ['UAFlix', 1, 1, 'https://cdn.example/u1.m3u8'],
+    ['UAFlix', 1, 2, 'https://cdn.example/u2.m3u8'],
+  ]);
+  assert.ok(!log.some((l) => /trailer/.test(l)), 'трейлер не відкривається');
+
+  const fix = createClient({ source: get('uaflix'), fetchText: fakeFetch([]) });
+  const p2 = await fix.online.findPages(q);
+  assert.deepStrictEqual(p2.map((p) => [p.title, p.url]), [['Високий потенціал / Здібна / High Potential', 'https://uafix.net/serials/visoki-potencial/']]);
+  const d2 = await fix.online.loadPage(p2[0].url);
+  assert.deepStrictEqual(d2.items.map((i) => [i.group, i.stream.url, Object.keys(i.stream.quality)]), [['UAFlix', 'https://zetvideo.net/v/1080.m3u8', ['1080p', '720p']]]);
+
+  const ser = createClient({ source: get('uaserial'), fetchText: fakeFetch([]) });
+  const p3 = await ser.online.findPages(q);
+  assert.deepStrictEqual(p3.map((p) => [p.title, p.url]), [['Високий потенціал', 'https://uaserial.tv/serial-high-potential']]);
+  await assert.rejects(ser.online.loadPage(p3[0].url), (e) => {
+    assert.ok(/UASerial: відео на сторінці не знайдено \(example-player\.net: не вдалося знайти відео в плеєрі; iframe\/хости: www\.youtube\.com, example-player\.net\)/.test(e.message), e.message);
+    return true;
+  });
+});
 
 // ---------------- online ----------------
 

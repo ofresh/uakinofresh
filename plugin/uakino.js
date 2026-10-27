@@ -43,7 +43,6 @@
     };
   }
 
-  var DEFAULT_HOST = 'https://uakino.best';
 
   function errorText(network, a, c) {
     if (a && a.responseJSON && a.responseJSON.error) return a.responseJSON.error;
@@ -73,9 +72,6 @@
     return Lampa.Storage.get('uakino_mode', 'direct') === 'server' && serverUrl() ? 'server' : 'direct';
   }
 
-  function siteHost() {
-    return String(Lampa.Storage.get('uakino_host', '') || DEFAULT_HOST).trim().replace(/\/+$/, '');
-  }
 
   // Короткий опис відповіді: статус і заголовок/початок сторінки (видно, хто відповів — сайт чи Cloudflare).
   function describe(a) {
@@ -115,7 +111,7 @@
           'User-Agent': BROWSER_UA,
           Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
           'Accept-Language': 'uk-UA,uk;q=0.9,en;q=0.8',
-          Referer: o.referer || siteHost() + '/'
+          Referer: o.referer || url.replace(/^(https?:\/\/[^/]+).*$/, '$1/')
         } : {};
         if (o.xhr) headers['X-Requested-With'] = 'XMLHttpRequest';
         if (o.body) headers['Content-Type'] = 'application/x-www-form-urlencoded; charset=UTF-8';
@@ -134,12 +130,33 @@
     });
   }
 
-  var client = null;
+  // ======================= Сайти =======================
 
-  function direct() {
-    var host = siteHost();
-    if (!client || client.host !== host) client = UAKinoLib.createClient({ host: host, fetchText: deviceFetch });
-    return client;
+  var SOURCES = UAKinoLib.SOURCES;
+  var clients = {};
+
+  function sourceById(id) {
+    return SOURCES.filter(function (s) { return s.id === id; })[0] || SOURCES[0];
+  }
+
+  // Адреса сайту: для UAKino — «Адреса сайту», для інших — власне поле в налаштуваннях.
+  function hostFor(source) {
+    var key = source.id === 'uakino' ? 'uakino_host' : 'uakino_host_' + source.id;
+    return String(Lampa.Storage.get(key, '') || source.host).trim().replace(/\/+$/, '');
+  }
+
+  function clientFor(id) {
+    var source = sourceById(id);
+    var host = hostFor(source);
+    if (!clients[id] || clients[id].host !== host) clients[id] = UAKinoLib.createClient({ source: source, host: host, fetchText: deviceFetch });
+    return clients[id];
+  }
+
+  function enabledSources() {
+    return SOURCES.filter(function (s) {
+      var v = Lampa.Storage.get('uakino_src_' + s.id, true);
+      return v !== false && v !== 'false';
+    });
   }
 
   function promised(promise, ok, fail) {
@@ -157,8 +174,9 @@
   }
 
   var Api = {
+    // Торенти є лише на UAKino.
     torrents: function (m, ok, fail) {
-      if (mode() === 'direct') return promised(direct().torrents({ title: m.title, original: m.original, year: m.year }), ok, fail);
+      if (mode() === 'direct') return promised(clientFor('uakino').torrents({ title: m.title, original: m.original, year: m.year }), ok, fail);
       serverGet('/api/v2.0/indexers/uakino/results' +
         '?apikey=' + enc(Lampa.Storage.get('uakino_apikey', '')) +
         '&Query=' + enc(m.title || m.original) +
@@ -169,41 +187,41 @@
         ok((json && json.Results) || []);
       }, fail);
     },
+    // Шукає одночасно на всіх увімкнених сайтах; помилка — лише якщо ніде нічого не знайдено.
     search: function (m, ok, fail) {
-      if (mode() === 'direct') {
-        return promised(direct().online.findPages({ title: m.title, original: m.original }), ok, function (err) {
-          // Діагностика: чи відкривається хоча б головна сторінка сайту.
-          deviceFetch(siteHost() + '/', {}).then(function (html) {
-            var t = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
-            fail(err + '. Головна сторінка відкривається: «' + (t ? t[1].trim().slice(0, 60) : html.length + ' байт') + '»');
-          }, function (e) {
-            // Контроль: чи працюють запити з пристрою до інших сайтів.
-            deviceFetch('https://example.com/', {}).then(function () {
-              // Блокування провайдером зазвичай видно по http:// — віддається його сторінка-заглушка.
-              var plain = siteHost().replace(/^https:/, 'http:') + '/';
-              var base = err + '. Головна сторінка теж не відкривається: ' + e.message + '. Інші сайти з цього пристрою відкриваються — блокується саме uakino';
-              deviceFetch(plain, {}).then(function (html) {
-                var t = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
-                fail(base + '. По http відповідає: «' + (t ? t[1].trim().slice(0, 80) : html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80)) + '»');
-              }, function (e3) {
-                fail(base + '. По http: ' + e3.message);
-              });
-            }, function (e2) {
-              fail(err + '. Головна сторінка теж не відкривається: ' + e.message + '. Інші сайти теж не відкриваються: ' + e2.message);
-            });
-          });
-        });
+      if (mode() === 'server') {
+        return serverGet('/online/search?title=' + enc(m.title) + '&original=' + enc(m.original) + '&year=' + enc(m.year), function (json) {
+          ok(((json && json.pages) || []).map(function (p) { p.source = 'uakino'; return p; }));
+        }, fail);
       }
-      serverGet('/online/search?title=' + enc(m.title) + '&original=' + enc(m.original) + '&year=' + enc(m.year), function (json) {
-        ok((json && json.pages) || []);
-      }, fail);
+      var list = enabledSources();
+      if (!list.length) return fail('усі сайти вимкнено в налаштуваннях');
+      Promise.all(list.map(function (source) {
+        return clientFor(source.id).online.findPages({ title: m.title, original: m.original }).then(function (pages) {
+          return { source: source, pages: pages };
+        }, function (e) {
+          return { source: source, pages: [], error: (e && e.message) || String(e) };
+        });
+      })).then(function (results) {
+        var pages = [];
+        var problems = [];
+        results.forEach(function (r) {
+          r.pages.forEach(function (p) {
+            p.source = r.source.id;
+            pages.push(p);
+          });
+          problems.push(r.source.name + ': ' + (r.error || (r.pages.length ? r.pages.length + ' знайдено' : 'нічого не знайдено')));
+        });
+        if (pages.length) ok(pages);
+        else fail('нічого не знайдено. ' + problems.join(' | '));
+      });
     },
-    page: function (url, ok, fail) {
-      if (mode() === 'direct') return promised(direct().online.loadPage(url), ok, fail);
-      serverGet('/online/page?url=' + enc(url), ok, fail);
+    page: function (p, ok, fail) {
+      if (mode() === 'direct') return promised(clientFor(p.source).online.loadPage(p.url), ok, fail);
+      serverGet('/online/page?url=' + enc(p.url), ok, fail);
     },
-    stream: function (url, referer, ok, fail) {
-      if (mode() === 'direct') return promised(direct().online.stream(url, referer), ok, fail);
+    stream: function (sourceId, url, referer, ok, fail) {
+      if (mode() === 'direct') return promised(clientFor(sourceId).online.stream(url, referer), ok, fail);
       serverGet('/online/stream?url=' + enc(url) + '&referer=' + enc(referer), ok, fail);
     }
   };
@@ -330,7 +348,7 @@
 
     function loadPage() {
       self.activity.loader(true);
-      Api.page(pages[pageIndex].url, alive(function (json) {
+      Api.page(pages[pageIndex], alive(function (json) {
         data = json || { items: [] };
         groups = [];
         (data.items || []).forEach(function (item) {
@@ -352,7 +370,7 @@
     }
 
     function pageName(p) {
-      return p.season ? 'Сезон ' + p.season : p.title;
+      return sourceById(p.source).name + ' · ' + (p.season ? 'Сезон ' + p.season : p.title);
     }
 
     function filterButton(label, value, onEnter) {
@@ -408,8 +426,8 @@
 
       var filters = $('<div class="uakino-online__filters"></div>');
       if (pages.length > 1) {
-        filters.append(filterButton('Сторінка:', pageName(pages[pageIndex]), function () {
-          select('UAKino', pages.map(pageName), pageIndex, function (i) {
+        filters.append(filterButton('Джерело:', pageName(pages[pageIndex]), function () {
+          select('Джерело', pages.map(pageName), pageIndex, function (i) {
             pageIndex = i;
             saveChoice();
             loadPage();
@@ -457,7 +475,7 @@
 
     function resolve(item, ok, fail) {
       if (item.stream) return ok(item.stream);
-      Api.stream(item.url, data.url, function (json) {
+      Api.stream(pages[pageIndex].source, item.url, data.url, function (json) {
         var s = json && json.items && json.items.length ? json.items[0].stream : json;
         if (!s || !s.url) return fail('посилання на відео не знайдено');
         item.stream = s;
@@ -613,10 +631,19 @@
       param: { name: 'uakino_mode', type: 'select', values: { direct: 'З пристрою (рекомендовано)', server: 'Через парсер' }, default: 'direct' },
       field: { name: 'Звідки завантажувати', description: 'uakino пускає лише домашні IP, тому запити краще робити прямо з ТВ/приставки' }
     });
-    Lampa.SettingsApi.addParam({
-      component: 'uakino',
-      param: { name: 'uakino_host', type: 'input', values: '', default: '', placeholder: DEFAULT_HOST },
-      field: { name: 'Адреса сайту', description: 'Дзеркало uakino. За замовчуванням: ' + DEFAULT_HOST }
+    SOURCES.forEach(function (source) {
+      Lampa.SettingsApi.addParam({
+        component: 'uakino',
+        param: { name: 'uakino_src_' + source.id, type: 'trigger', default: true },
+        field: { name: source.name, description: 'Шукати на ' + source.host.replace(/^https?:\/\//, '') + (source.torrents ? ' (онлайн і торенти)' : '') }
+      });
+    });
+    SOURCES.forEach(function (source) {
+      Lampa.SettingsApi.addParam({
+        component: 'uakino',
+        param: { name: source.id === 'uakino' ? 'uakino_host' : 'uakino_host_' + source.id, type: 'input', values: '', default: '', placeholder: source.host },
+        field: { name: 'Адреса ' + source.name, description: 'Дзеркало, якщо основна адреса не відкривається. За замовчуванням: ' + source.host }
+      });
     });
     Lampa.SettingsApi.addParam({
       component: 'uakino',

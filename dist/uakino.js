@@ -5,6 +5,7 @@ function _slicedToArray(r, e) { return _arrayWithHoles(r) || _iterableToArrayLim
 function _nonIterableRest() { throw new TypeError("Invalid attempt to destructure non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method."); }
 function _iterableToArrayLimit(r, l) { var t = null == r ? null : "undefined" != typeof Symbol && r[Symbol.iterator] || r["@@iterator"]; if (null != t) { var e, n, i, u, a = [], f = !0, o = !1; try { if (i = (t = t.call(r)).next, 0 === l) { if (Object(t) !== t) return; f = !1; } else for (; !(f = (e = i.call(t)).done) && (a.push(e.value), a.length !== l); f = !0); } catch (r) { o = !0, n = r; } finally { try { if (!f && null != t.return && (u = t.return(), Object(u) !== u)) return; } finally { if (o) throw n; } } return a; } }
 function _arrayWithHoles(r) { if (Array.isArray(r)) return r; }
+function _regeneratorValues(e) { if (null != e) { var t = e["function" == typeof Symbol && Symbol.iterator || "@@iterator"], r = 0; if (t) return t.call(e); if ("function" == typeof e.next) return e; if (!isNaN(e.length)) return { next: function next() { return e && r >= e.length && (e = void 0), { value: e && e[r++], done: !e }; } }; } throw new TypeError(_typeof(e) + " is not iterable"); }
 function _classCallCheck(a, n) { if (!(a instanceof n)) throw new TypeError("Cannot call a class as a function"); }
 function _defineProperties(e, r) { for (var t = 0; t < r.length; t++) { var o = r[t]; o.enumerable = o.enumerable || !1, o.configurable = !0, "value" in o && (o.writable = !0), Object.defineProperty(e, _toPropertyKey(o.key), o); } }
 function _createClass(e, r, t) { return r && _defineProperties(e.prototype, r), t && _defineProperties(e, t), Object.defineProperty(e, "prototype", { writable: !1 }), e; }
@@ -40,7 +41,8 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
         "./parse": "lib/parse.js",
         "./online": "lib/online.js",
         "./jackett": "lib/jackett.js",
-        "./search": "lib/search.js"
+        "./search": "lib/search.js",
+        "./sources": "lib/sources.js"
       }, function (module, exports, require) {
         'use strict';
         var parse = require('./parse');
@@ -50,12 +52,16 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
           toJackett = _require2.toJackett;
         var _require3 = require('./search'),
           searchDle = _require3.searchDle;
+        var _require4 = require('./sources'),
+          SOURCES = _require4.SOURCES;
         function createClient(_ref) {
-          var host = _ref.host,
+          var source = _ref.source,
+            host = _ref.host,
             fetchText = _ref.fetchText,
             _ref$maxPages = _ref.maxPages,
             maxPages = _ref$maxPages === void 0 ? 5 : _ref$maxPages;
-          host = String(host || 'https://uakino.best').replace(/\/+$/, '');
+          source = source || SOURCES[0];
+          host = String(host || source.host).replace(/\/+$/, '');
           var searches = new Map();
           var pages = new Map();
           function searchSite(_x) {
@@ -82,7 +88,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                     return _context.a(2, searches.get(key));
                   case 2:
                     _context.n = 3;
-                    return searchDle(host, q, fetchText);
+                    return searchDle(host, q, fetchText, source);
                   case 3:
                     list = _context.v;
                     searches.set(key, list);
@@ -242,17 +248,21 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
           }
           return {
             host: host,
+            source: source,
             searchSite: searchSite,
             torrents: torrents,
             online: createOnline({
               host: host,
               fetchText: fetchText,
-              searchSite: searchSite
+              searchSite: searchSite,
+              name: source.name,
+              anyPlayer: true
             })
           };
         }
         module.exports = {
-          createClient: createClient
+          createClient: createClient,
+          SOURCES: SOURCES
         };
       }],
       "lib/parse.js": [{}, function (module, exports, require) {
@@ -331,7 +341,19 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
           var m = tag.match(new RegExp('\\s' + name + '\\s*=\\s*("([^"]*)"|\'([^\']*)\'|([^\\s>]+))', 'i'));
           return m ? m[2] !== undefined ? m[2] : m[3] !== undefined ? m[3] : m[4] : null;
         }
-        function parseList(html, host) {
+        function cardTitle(tag, inner) {
+          var clean = function clean(t) {
+            return decodeEntities(t || '').replace(/\s+(онлайн|дивитис[ья]|смотреть)\b.*$/i, '').replace(/\s+/g, ' ').trim();
+          };
+          var heading = inner.match(/<h[1-6]\b[^>]*>([\s\S]*?)<\/h[1-6]>/i);
+          if (heading && stripTags(heading[1])) return clean(stripTags(heading[1]));
+          if (attr(tag, 'title')) return clean(attr(tag, 'title'));
+          var img = inner.match(/<img\b[^>]*>/i);
+          var alt = img ? attr(img[0], 'alt') || attr(img[0], 'title') : '';
+          if (alt && !/постер|poster/i.test(alt)) return clean(alt);
+          return clean(stripTags(inner));
+        }
+        function parseList(html, host, linkRe) {
           var found = new Map();
           var re = /<a\b([^>]*)>([\s\S]*?)<\/a>/gi;
           var m;
@@ -340,14 +362,16 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
             if (!href) continue;
             var url = localize(absoluteUrl(href, host), host);
             if (!url) continue;
-            var id = newsId(url);
+            var id = void 0;
+            if (linkRe) {
+              var path = new URL(url).pathname;
+              id = linkRe.test(path) ? path : null;
+            } else {
+              id = newsId(url);
+            }
             if (!id) continue;
             var cls = attr(m[0], 'class') || '';
-            var title = stripTags(m[2]);
-            if (!title) {
-              var img = m[2].match(/<img\b[^>]*>/i);
-              if (img) title = decodeEntities(attr(img[0], 'alt') || attr(img[0], 'title') || '').trim();
-            }
+            var title = cardTitle(m[0], m[2]);
             var item = found.get(id) || {
               id: id,
               url: url,
@@ -356,9 +380,9 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
             };
             if (title && (!item.title || /movie-title|title/.test(cls))) item.title = title;
             if (!item.poster) {
-              var _img = m[2].match(/<img\b[^>]*>/i);
-              if (_img) {
-                var src = attr(_img[0], 'data-src') || attr(_img[0], 'src');
+              var img = m[2].match(/<img\b[^>]*>/i);
+              if (img) {
+                var src = attr(img[0], 'data-src') || attr(img[0], 'src');
                 if (src) item.poster = absoluteUrl(src, host);
               }
             }
@@ -487,7 +511,8 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
       }, function (module, exports, require) {
         'use strict';
         var parse = require('./parse');
-        var PLAYER_HOSTS = /(^|\.)(ashdi\.vip|tortuga\.(wtf|tw)|uakino\.[a-z]+)$/i;
+        var PLAYER_HOSTS = /(^|\.)(ashdi\.vip|tortuga\.[a-z]+|zetvideo\.net|[a-z0-9-]*hdvb[a-z0-9-]*\.[a-z]+|uakino\.[a-z]+)$/i;
+        var PLAYER_URL = /(?:https?:)?\/\/(?:[a-z0-9-]+\.)*(?:ashdi\.vip|tortuga\.[a-z]+|zetvideo\.net|[a-z0-9-]*hdvb[a-z0-9-]*\.[a-z]+)\/[^"'\s<>\\]+/gi;
         function attr(tag, name) {
           var m = tag.match(new RegExp('\\s' + name + '\\s*=\\s*("([^"]*)"|\'([^\']*)\'|([^\\s>]+))', 'i'));
           return m ? parse.decodeEntities(m[2] !== undefined ? m[2] : m[3] !== undefined ? m[3] : m[4]) : null;
@@ -507,7 +532,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
           var m = String(s || '').match(/(\d+)\s*(?:сері|серия|епізод|episode)|(?:сері[яї]|серия|епізод|episode)\s*(\d+)|^\s*(\d+)\b/i);
           return m ? Number(m[1] || m[2] || m[3]) : null;
         }
-        function parsePlayers(html, host) {
+        function parsePlayers(html, host, anyHost) {
           var playlist = null;
           var ajax = html.match(/<div\b[^>]*class=["'][^"']*playlists-ajax[^"']*["'][^>]*>/i);
           if (ajax) {
@@ -518,23 +543,43 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
             };
           }
           var iframes = [];
+          var seen = [];
+          var skip = function skip(src) {
+            return /youtube|trailer|\.(js|css|png|jpe?g|webp|gif|svg|ico)(\?|$)/i.test(src);
+          };
+          var add = function add(src) {
+            if (!src || iframes.indexOf(src) >= 0 || skip(src)) return;
+            iframes.push(src);
+          };
           var re = /<iframe\b[^>]*>/gi;
           var m;
           while (m = re.exec(html)) {
             var src = absolute(attr(m[0], 'src') || attr(m[0], 'data-src') || '', host);
-            if (!src || iframes.indexOf(src) >= 0) continue;
+            if (!src) continue;
             try {
               var h = new URL(src).hostname;
-              if (!PLAYER_HOSTS.test(h) && h !== new URL(host).hostname) continue;
+              if (seen.indexOf(h) < 0) seen.push(h);
+              if (!anyHost && !PLAYER_HOSTS.test(h) && h !== new URL(host).hostname) continue;
             } catch (e) {
               continue;
             }
-            if (/youtube|trailer/i.test(src)) continue;
-            iframes.push(src);
+            add(src);
           }
+          var loose = html.match(PLAYER_URL) || [];
+          loose.forEach(function (u) {
+            var src = absolute(u.replace(/&amp;/g, '&'), host);
+            try {
+              var _h = new URL(src).hostname;
+              if (seen.indexOf(_h) < 0) seen.push(_h);
+            } catch (e) {
+              return;
+            }
+            add(src);
+          });
           return {
             playlist: playlist,
-            iframes: iframes
+            iframes: iframes,
+            seen: seen
           };
         }
         function parsePlaylist(html, host) {
@@ -696,7 +741,11 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
         function createOnline(_ref3) {
           var host = _ref3.host,
             fetchText = _ref3.fetchText,
-            searchSite = _ref3.searchSite;
+            searchSite = _ref3.searchSite,
+            _ref3$name = _ref3.name,
+            name = _ref3$name === void 0 ? 'UAKino' : _ref3$name,
+            _ref3$anyPlayer = _ref3.anyPlayer,
+            anyPlayer = _ref3$anyPlayer === void 0 ? false : _ref3$anyPlayer;
           var cache = new TinyCache(20 * 60 * 1000);
           host = host.replace(/\/+$/, '');
           function checkUrl(url, players) {
@@ -709,7 +758,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
               });
             }
             var own = u.hostname.replace(/^www\./, '') === new URL(host).hostname.replace(/^www\./, '');
-            var ok = own || players && PLAYER_HOSTS.test(u.hostname);
+            var ok = own || players && (anyPlayer || PLAYER_HOSTS.test(u.hostname));
             if (!ok || !/^https?:$/.test(u.protocol)) throw Object.assign(new Error('url is not allowed'), {
               status: 403
             });
@@ -859,7 +908,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                                 return {
                                   group: f.path.filter(function (x) {
                                     return !seasonOf(x);
-                                  }).join(' / ') || 'UAKino',
+                                  }).join(' / ') || name,
                                   season: seasonOf(f.path.join(' ')),
                                   title: f.title,
                                   episode: episodeOf(f.title),
@@ -893,36 +942,36 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
           }
           function _loadPage() {
             _loadPage = _asyncToGenerator(_regenerator().m(function _callee9(url) {
-              return _regenerator().w(function (_context9) {
-                while (1) switch (_context9.n) {
+              return _regenerator().w(function (_context0) {
+                while (1) switch (_context0.n) {
                   case 0:
                     url = checkUrl(url, false);
-                    return _context9.a(2, cache.wrap('page:' + url, _asyncToGenerator(_regenerator().m(function _callee8() {
-                      var html, page, season, players, items, ajax, text, body, data, _iterator6, _step6, src, s, _t0, _t1, _t10;
-                      return _regenerator().w(function (_context8) {
-                        while (1) switch (_context8.p = _context8.n) {
+                    return _context0.a(2, cache.wrap('page:' + url, _asyncToGenerator(_regenerator().m(function _callee8() {
+                      var html, page, season, players, items, ajax, text, body, data, errors, inline, st, n, _iterator6, _step6, _loop, diag, _t1, _t10;
+                      return _regenerator().w(function (_context9) {
+                        while (1) switch (_context9.p = _context9.n) {
                           case 0:
-                            _context8.n = 1;
+                            _context9.n = 1;
                             return fetchText(url, {});
                           case 1:
-                            html = _context8.v;
+                            html = _context9.v;
                             page = parse.parsePage(html, url, host);
                             season = seasonOf(page.title);
-                            players = parsePlayers(html, host);
+                            players = parsePlayers(html, host, anyPlayer);
                             items = [];
                             if (!players.playlist) {
-                              _context8.n = 5;
+                              _context9.n = 5;
                               break;
                             }
-                            _context8.p = 2;
+                            _context9.p = 2;
                             ajax = host + '/engine/ajax/playlists.php?news_id=' + encodeURIComponent(players.playlist.newsId) + '&xfield=' + encodeURIComponent(players.playlist.xfield) + '&time=' + Date.now();
-                            _context8.n = 3;
+                            _context9.n = 3;
                             return fetchText(ajax, {
                               xhr: true,
                               referer: url
                             });
                           case 3:
-                            text = _context8.v;
+                            text = _context9.v;
                             body = text;
                             try {
                               data = JSON.parse(text);
@@ -939,67 +988,123 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                                 url: ep.file
                               };
                             });
-                            _context8.n = 5;
+                            _context9.n = 5;
                             break;
                           case 4:
-                            _context8.p = 4;
-                            _t0 = _context8.v;
+                            _context9.p = 4;
+                            _t1 = _context9.v;
                             if (players.iframes.length) {
-                              _context8.n = 5;
+                              _context9.n = 5;
                               break;
                             }
-                            throw _t0;
+                            throw _t1;
                           case 5:
+                            errors = [];
+                            if (!items.length) {
+                              inline = parsePlayerjs(html);
+                              if (inline && inline.folders) {
+                                items = inline.folders.map(function (f) {
+                                  return {
+                                    group: f.path.filter(function (x) {
+                                      return !seasonOf(x);
+                                    }).join(' / ') || name,
+                                    season: seasonOf(f.path.join(' ')) || season,
+                                    title: f.title,
+                                    episode: episodeOf(f.title),
+                                    stream: toStream(f.file, f.subtitle)
+                                  };
+                                }).filter(function (i) {
+                                  return i.stream;
+                                });
+                              } else if (inline) {
+                                st = toStream(inline.file, inline.subtitle);
+                                if (st) items.push({
+                                  group: name,
+                                  season: season,
+                                  title: page.title,
+                                  episode: null,
+                                  stream: st
+                                });
+                              }
+                            }
                             if (items.length) {
-                              _context8.n = 15;
+                              _context9.n = 12;
                               break;
                             }
-                            _iterator6 = _createForOfIteratorHelper(players.iframes);
-                            _context8.p = 6;
+                            n = 0;
+                            _iterator6 = _createForOfIteratorHelper(players.iframes.slice(0, 6));
+                            _context9.p = 6;
+                            _loop = _regenerator().m(function _loop() {
+                              var src, s, group, _t0;
+                              return _regenerator().w(function (_context8) {
+                                while (1) switch (_context8.p = _context8.n) {
+                                  case 0:
+                                    src = _step6.value;
+                                    n++;
+                                    _context8.p = 1;
+                                    _context8.n = 2;
+                                    return stream(src, url);
+                                  case 2:
+                                    s = _context8.v;
+                                    group = players.iframes.length > 1 ? name + ' · плеєр ' + n : name;
+                                    if (s.items) items = items.concat(s.items.map(function (i) {
+                                      return Object.assign({}, i, {
+                                        group: i.group === name ? group : i.group,
+                                        season: i.season || season
+                                      });
+                                    }));else items.push({
+                                      group: group,
+                                      season: season,
+                                      title: page.title,
+                                      episode: null,
+                                      stream: s
+                                    });
+                                    _context8.n = 4;
+                                    break;
+                                  case 3:
+                                    _context8.p = 3;
+                                    _t0 = _context8.v;
+                                    errors.push(new URL(src).hostname + ': ' + _t0.message);
+                                  case 4:
+                                    return _context8.a(2);
+                                }
+                              }, _loop, null, [[1, 3]]);
+                            });
                             _iterator6.s();
                           case 7:
                             if ((_step6 = _iterator6.n()).done) {
-                              _context8.n = 12;
+                              _context9.n = 9;
                               break;
                             }
-                            src = _step6.value;
-                            _context8.p = 8;
-                            _context8.n = 9;
-                            return stream(src, url);
+                            return _context9.d(_regeneratorValues(_loop()), 8);
+                          case 8:
+                            _context9.n = 7;
+                            break;
                           case 9:
-                            s = _context8.v;
-                            if (s.items) items = items.concat(s.items.map(function (i) {
-                              return Object.assign({}, i, {
-                                season: i.season || season
-                              });
-                            }));else items.push({
-                              group: 'UAKino',
-                              season: season,
-                              title: page.title,
-                              episode: null,
-                              stream: s
-                            });
-                            _context8.n = 11;
+                            _context9.n = 11;
                             break;
                           case 10:
-                            _context8.p = 10;
-                            _t1 = _context8.v;
-                          case 11:
-                            _context8.n = 7;
-                            break;
-                          case 12:
-                            _context8.n = 14;
-                            break;
-                          case 13:
-                            _context8.p = 13;
-                            _t10 = _context8.v;
+                            _context9.p = 10;
+                            _t10 = _context9.v;
                             _iterator6.e(_t10);
-                          case 14:
-                            _context8.p = 14;
+                          case 11:
+                            _context9.p = 11;
                             _iterator6.f();
-                            return _context8.f(14);
-                          case 15:
-                            return _context8.a(2, {
+                            return _context9.f(11);
+                          case 12:
+                            if (items.length) {
+                              _context9.n = 13;
+                              break;
+                            }
+                            diag = [];
+                            if (errors.length) diag.push(errors.slice(0, 3).join('; '));else if (players.iframes.length) diag.push('плеєри: ' + players.iframes.length);
+                            diag.push('iframe/хости: ' + (players.seen.length ? players.seen.slice(0, 6).join(', ') : 'немає'));
+                            if (/Playerjs/i.test(html)) diag.push('є Playerjs');
+                            throw Object.assign(new Error(name + ': відео на сторінці не знайдено (' + diag.join('; ') + ')'), {
+                              status: 404
+                            });
+                          case 13:
+                            return _context9.a(2, {
                               url: url,
                               title: page.title,
                               original: page.original,
@@ -1009,7 +1114,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                               items: items
                             });
                         }
-                      }, _callee8, null, [[8, 10], [6, 13, 14, 15], [2, 4]]);
+                      }, _callee8, null, [[6, 10, 11, 12], [2, 4]]);
                     }))));
                 }
               }, _callee9);
@@ -1022,38 +1127,38 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
           function _route() {
             _route = _asyncToGenerator(_regenerator().m(function _callee0(pathname, params) {
               var _t11;
-              return _regenerator().w(function (_context0) {
-                while (1) switch (_context0.n) {
+              return _regenerator().w(function (_context1) {
+                while (1) switch (_context1.n) {
                   case 0:
                     if (!(pathname === '/online/search')) {
-                      _context0.n = 2;
+                      _context1.n = 2;
                       break;
                     }
-                    _context0.n = 1;
+                    _context1.n = 1;
                     return findPages({
                       title: params.get('title') || '',
                       original: params.get('original') || params.get('title_original') || '',
                       query: params.get('query') || params.get('Query') || ''
                     });
                   case 1:
-                    _t11 = _context0.v;
-                    return _context0.a(2, {
+                    _t11 = _context1.v;
+                    return _context1.a(2, {
                       pages: _t11
                     });
                   case 2:
                     if (!(pathname === '/online/page')) {
-                      _context0.n = 3;
+                      _context1.n = 3;
                       break;
                     }
-                    return _context0.a(2, loadPage(params.get('url') || ''));
+                    return _context1.a(2, loadPage(params.get('url') || ''));
                   case 3:
                     if (!(pathname === '/online/stream')) {
-                      _context0.n = 4;
+                      _context1.n = 4;
                       break;
                     }
-                    return _context0.a(2, stream(params.get('url') || '', params.get('referer') ? checkUrl(params.get('referer'), false) : ''));
+                    return _context1.a(2, stream(params.get('url') || '', params.get('referer') ? checkUrl(params.get('referer'), false) : ''));
                   case 4:
-                    return _context0.a(2, null);
+                    return _context1.a(2, null);
                 }
               }, _callee0);
             }));
@@ -1125,21 +1230,22 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
         function simplify(q) {
           return q.split(/[:–—(]/)[0].replace(/[^0-9a-zA-ZÀ-ɏЀ-ӿ ]+/g, ' ').replace(/\s+/g, ' ').trim();
         }
-        function searchDle(_x10, _x11, _x12) {
+        function searchDle(_x10, _x11, _x12, _x13) {
           return _searchDle.apply(this, arguments);
         }
         function _searchDle() {
-          _searchDle = _asyncToGenerator(_regenerator().m(function _callee1(host, query, fetchText) {
+          _searchDle = _asyncToGenerator(_regenerator().m(function _callee1(host, query, fetchText, source) {
             var q, queries, short, errors, ok, _i, _queries, story, attempts, _i2, _attempts, _attempts$_i, method, url, body, list, err, _t12, _t13;
-            return _regenerator().w(function (_context1) {
-              while (1) switch (_context1.p = _context1.n) {
+            return _regenerator().w(function (_context10) {
+              while (1) switch (_context10.p = _context10.n) {
                 case 0:
+                  source = source || {};
                   q = String(query || '').trim();
                   if (!(q.length < 2)) {
-                    _context1.n = 1;
+                    _context10.n = 1;
                     break;
                   }
-                  return _context1.a(2, []);
+                  return _context10.a(2, []);
                 case 1:
                   queries = [q];
                   short = simplify(q);
@@ -1149,58 +1255,58 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                   _i = 0, _queries = queries;
                 case 2:
                   if (!(_i < _queries.length)) {
-                    _context1.n = 10;
+                    _context10.n = 10;
                     break;
                   }
                   story = _queries[_i];
-                  attempts = [['POST', host + '/index.php?do=search', 'do=search&subaction=search&search_start=0&full_search=0&result_from=1&story=' + encodeURIComponent(story)], ['GET', host + '/index.php?do=search&subaction=search&story=' + encodeURIComponent(story), null]];
+                  attempts = source.searchPath ? [['GET', host + source.searchPath + encodeURIComponent(story), null]] : [['POST', host + '/index.php?do=search', 'do=search&subaction=search&search_start=0&full_search=0&result_from=1&story=' + encodeURIComponent(story)], ['GET', host + '/index.php?do=search&subaction=search&story=' + encodeURIComponent(story), null]];
                   _i2 = 0, _attempts = attempts;
                 case 3:
                   if (!(_i2 < _attempts.length)) {
-                    _context1.n = 9;
+                    _context10.n = 9;
                     break;
                   }
                   _attempts$_i = _slicedToArray(_attempts[_i2], 3), method = _attempts$_i[0], url = _attempts$_i[1], body = _attempts$_i[2];
-                  _context1.p = 4;
+                  _context10.p = 4;
                   _t12 = parse;
-                  _context1.n = 5;
+                  _context10.n = 5;
                   return fetchText(url, method === 'POST' ? {
                     method: method,
                     body: body
                   } : {});
                 case 5:
-                  list = _t12.parseList.call(_t12, _context1.v, host);
+                  list = _t12.parseList.call(_t12, _context10.v, host, source.linkRe);
                   ok = true;
                   if (!list.length) {
-                    _context1.n = 6;
+                    _context10.n = 6;
                     break;
                   }
-                  return _context1.a(2, list);
+                  return _context10.a(2, list);
                 case 6:
-                  _context1.n = 8;
+                  _context10.n = 8;
                   break;
                 case 7:
-                  _context1.p = 7;
-                  _t13 = _context1.v;
+                  _context10.p = 7;
+                  _t13 = _context10.v;
                   errors.push(method + ': ' + _t13.message);
                 case 8:
                   _i2++;
-                  _context1.n = 3;
+                  _context10.n = 3;
                   break;
                 case 9:
                   _i++;
-                  _context1.n = 2;
+                  _context10.n = 2;
                   break;
                 case 10:
                   if (ok) {
-                    _context1.n = 11;
+                    _context10.n = 11;
                     break;
                   }
-                  err = new Error('пошук на uakino не вдався (' + errors.join('; ') + ')');
+                  err = new Error('пошук не вдався (' + errors.join('; ') + ')');
                   err.status = 502;
                   throw err;
                 case 11:
-                  return _context1.a(2, []);
+                  return _context10.a(2, []);
               }
             }, _callee1, null, [[4, 7]]);
           }));
@@ -1209,6 +1315,43 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
         module.exports = {
           searchDle: searchDle,
           simplify: simplify
+        };
+      }],
+      "lib/sources.js": [{}, function (module, exports, require) {
+        'use strict';
+        var SOURCES = [{
+          id: 'uakino',
+          name: 'UAKino',
+          host: 'https://uakino.best',
+          torrents: true
+        }, {
+          id: 'uaserials',
+          name: 'UASerials',
+          host: 'https://uaserials.my'
+        }, {
+          id: 'uaflix',
+          name: 'UAFlix',
+          host: 'https://uafix.net',
+          linkRe: /^\/(?!page\/|tags\/|xfsearch\/|user\/|index)[a-z-]+\/[a-z0-9-]+\/$/
+        }, {
+          id: 'eneyida',
+          name: 'Eneyida',
+          host: 'https://eneyida.tv'
+        }, {
+          id: 'uaserial',
+          name: 'UASerial',
+          host: 'https://uaserial.tv',
+          searchPath: '/search?query=',
+          linkRe: /^\/(movie|serial|series|cartoon|anime|show)-[^/]+$/
+        }];
+        function getSource(id) {
+          return SOURCES.filter(function (s) {
+            return s.id === id;
+          })[0] || null;
+        }
+        module.exports = {
+          SOURCES: SOURCES,
+          getSource: getSource
         };
       }]
     };
@@ -1254,7 +1397,6 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
         serial: !!(movie.name || movie.first_air_date)
       };
     }
-    var DEFAULT_HOST = 'https://uakino.best';
     function errorText(network, a, c) {
       if (a && a.responseJSON && a.responseJSON.error) return a.responseJSON.error;
       if (a && a.responseText) {
@@ -1276,9 +1418,6 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
     }
     function mode() {
       return Lampa.Storage.get('uakino_mode', 'direct') === 'server' && serverUrl() ? 'server' : 'direct';
-    }
-    function siteHost() {
-      return String(Lampa.Storage.get('uakino_host', '') || DEFAULT_HOST).trim().replace(/\/+$/, '');
     }
     function describe(a) {
       var status = a && a.status;
@@ -1311,7 +1450,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
             'User-Agent': BROWSER_UA,
             Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
             'Accept-Language': 'uk-UA,uk;q=0.9,en;q=0.8',
-            Referer: o.referer || siteHost() + '/'
+            Referer: o.referer || url.replace(/^(https?:\/\/[^/]+).*$/, '$1/')
           } : {};
           if (o.xhr) headers['X-Requested-With'] = 'XMLHttpRequest';
           if (o.body) headers['Content-Type'] = 'application/x-www-form-urlencoded; charset=UTF-8';
@@ -1332,14 +1471,32 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
         attempt(0);
       });
     }
-    var client = null;
-    function direct() {
-      var host = siteHost();
-      if (!client || client.host !== host) client = UAKinoLib.createClient({
+    var SOURCES = UAKinoLib.SOURCES;
+    var clients = {};
+    function sourceById(id) {
+      return SOURCES.filter(function (s) {
+        return s.id === id;
+      })[0] || SOURCES[0];
+    }
+    function hostFor(source) {
+      var key = source.id === 'uakino' ? 'uakino_host' : 'uakino_host_' + source.id;
+      return String(Lampa.Storage.get(key, '') || source.host).trim().replace(/\/+$/, '');
+    }
+    function clientFor(id) {
+      var source = sourceById(id);
+      var host = hostFor(source);
+      if (!clients[id] || clients[id].host !== host) clients[id] = UAKinoLib.createClient({
+        source: source,
         host: host,
         fetchText: deviceFetch
       });
-      return client;
+      return clients[id];
+    }
+    function enabledSources() {
+      return SOURCES.filter(function (s) {
+        var v = Lampa.Storage.get('uakino_src_' + s.id, true);
+        return v !== false && v !== 'false';
+      });
     }
     function promised(promise, ok, fail) {
       promise.then(ok, function (e) {
@@ -1355,7 +1512,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
     }
     var Api = {
       torrents: function torrents(m, ok, fail) {
-        if (mode() === 'direct') return promised(direct().torrents({
+        if (mode() === 'direct') return promised(clientFor('uakino').torrents({
           title: m.title,
           original: m.original,
           year: m.year
@@ -1365,40 +1522,51 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
         }, fail);
       },
       search: function search(m, ok, fail) {
-        if (mode() === 'direct') {
-          return promised(direct().online.findPages({
+        if (mode() === 'server') {
+          return serverGet('/online/search?title=' + enc(m.title) + '&original=' + enc(m.original) + '&year=' + enc(m.year), function (json) {
+            ok((json && json.pages || []).map(function (p) {
+              p.source = 'uakino';
+              return p;
+            }));
+          }, fail);
+        }
+        var list = enabledSources();
+        if (!list.length) return fail('усі сайти вимкнено в налаштуваннях');
+        Promise.all(list.map(function (source) {
+          return clientFor(source.id).online.findPages({
             title: m.title,
             original: m.original
-          }), ok, function (err) {
-            deviceFetch(siteHost() + '/', {}).then(function (html) {
-              var t = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
-              fail(err + '. Головна сторінка відкривається: «' + (t ? t[1].trim().slice(0, 60) : html.length + ' байт') + '»');
-            }, function (e) {
-              deviceFetch('https://example.com/', {}).then(function () {
-                var plain = siteHost().replace(/^https:/, 'http:') + '/';
-                var base = err + '. Головна сторінка теж не відкривається: ' + e.message + '. Інші сайти з цього пристрою відкриваються — блокується саме uakino';
-                deviceFetch(plain, {}).then(function (html) {
-                  var t = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
-                  fail(base + '. По http відповідає: «' + (t ? t[1].trim().slice(0, 80) : html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80)) + '»');
-                }, function (e3) {
-                  fail(base + '. По http: ' + e3.message);
-                });
-              }, function (e2) {
-                fail(err + '. Головна сторінка теж не відкривається: ' + e.message + '. Інші сайти теж не відкриваються: ' + e2.message);
-              });
-            });
+          }).then(function (pages) {
+            return {
+              source: source,
+              pages: pages
+            };
+          }, function (e) {
+            return {
+              source: source,
+              pages: [],
+              error: e && e.message || String(e)
+            };
           });
-        }
-        serverGet('/online/search?title=' + enc(m.title) + '&original=' + enc(m.original) + '&year=' + enc(m.year), function (json) {
-          ok(json && json.pages || []);
-        }, fail);
+        })).then(function (results) {
+          var pages = [];
+          var problems = [];
+          results.forEach(function (r) {
+            r.pages.forEach(function (p) {
+              p.source = r.source.id;
+              pages.push(p);
+            });
+            problems.push(r.source.name + ': ' + (r.error || (r.pages.length ? r.pages.length + ' знайдено' : 'нічого не знайдено')));
+          });
+          if (pages.length) ok(pages);else fail('нічого не знайдено. ' + problems.join(' | '));
+        });
       },
-      page: function page(url, ok, fail) {
-        if (mode() === 'direct') return promised(direct().online.loadPage(url), ok, fail);
-        serverGet('/online/page?url=' + enc(url), ok, fail);
+      page: function page(p, ok, fail) {
+        if (mode() === 'direct') return promised(clientFor(p.source).online.loadPage(p.url), ok, fail);
+        serverGet('/online/page?url=' + enc(p.url), ok, fail);
       },
-      stream: function stream(url, referer, ok, fail) {
-        if (mode() === 'direct') return promised(direct().online.stream(url, referer), ok, fail);
+      stream: function stream(sourceId, url, referer, ok, fail) {
+        if (mode() === 'direct') return promised(clientFor(sourceId).online.stream(url, referer), ok, fail);
         serverGet('/online/stream?url=' + enc(url) + '&referer=' + enc(referer), ok, fail);
       }
     };
@@ -1518,7 +1686,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
       };
       function loadPage() {
         self.activity.loader(true);
-        Api.page(pages[pageIndex].url, alive(function (json) {
+        Api.page(pages[pageIndex], alive(function (json) {
           data = json || {
             items: []
           };
@@ -1540,7 +1708,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
         });
       }
       function pageName(p) {
-        return p.season ? 'Сезон ' + p.season : p.title;
+        return sourceById(p.source).name + ' · ' + (p.season ? 'Сезон ' + p.season : p.title);
       }
       function filterButton(label, value, onEnter) {
         var btn = $('<div class="uakino-online__filter selector"><span></span> <b></b></div>');
@@ -1593,8 +1761,8 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
         last = null;
         var filters = $('<div class="uakino-online__filters"></div>');
         if (pages.length > 1) {
-          filters.append(filterButton('Сторінка:', pageName(pages[pageIndex]), function () {
-            select('UAKino', pages.map(pageName), pageIndex, function (i) {
+          filters.append(filterButton('Джерело:', pageName(pages[pageIndex]), function () {
+            select('Джерело', pages.map(pageName), pageIndex, function (i) {
               pageIndex = i;
               saveChoice();
               loadPage();
@@ -1638,7 +1806,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
       }
       function resolve(item, ok, fail) {
         if (item.stream) return ok(item.stream);
-        Api.stream(item.url, data.url, function (json) {
+        Api.stream(pages[pageIndex].source, item.url, data.url, function (json) {
           var s = json && json.items && json.items.length ? json.items[0].stream : json;
           if (!s || !s.url) return fail('посилання на відео не знайдено');
           item.stream = s;
@@ -1785,19 +1953,35 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
           description: 'uakino пускає лише домашні IP, тому запити краще робити прямо з ТВ/приставки'
         }
       });
-      Lampa.SettingsApi.addParam({
-        component: 'uakino',
-        param: {
-          name: 'uakino_host',
-          type: 'input',
-          values: '',
-          default: '',
-          placeholder: DEFAULT_HOST
-        },
-        field: {
-          name: 'Адреса сайту',
-          description: 'Дзеркало uakino. За замовчуванням: ' + DEFAULT_HOST
-        }
+      SOURCES.forEach(function (source) {
+        Lampa.SettingsApi.addParam({
+          component: 'uakino',
+          param: {
+            name: 'uakino_src_' + source.id,
+            type: 'trigger',
+            default: true
+          },
+          field: {
+            name: source.name,
+            description: 'Шукати на ' + source.host.replace(/^https?:\/\//, '') + (source.torrents ? ' (онлайн і торенти)' : '')
+          }
+        });
+      });
+      SOURCES.forEach(function (source) {
+        Lampa.SettingsApi.addParam({
+          component: 'uakino',
+          param: {
+            name: source.id === 'uakino' ? 'uakino_host' : 'uakino_host_' + source.id,
+            type: 'input',
+            values: '',
+            default: '',
+            placeholder: source.host
+          },
+          field: {
+            name: 'Адреса ' + source.name,
+            description: 'Дзеркало, якщо основна адреса не відкривається. За замовчуванням: ' + source.host
+          }
+        });
       });
       Lampa.SettingsApi.addParam({
         component: 'uakino',
