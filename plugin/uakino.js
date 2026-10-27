@@ -303,22 +303,51 @@
   // ======================= Онлайн =======================
 
   // Висота відео (1080, 720…) з посилання: з міток якості або з master-плейлиста m3u8.
+  // Стандартна якість (360/480/720/1080/1440/2160). Рахуємо за шириною кадру: у широкоекранних фільмах
+  // висота менша (1920×800 — це 1080p, а не «800p»).
+  function standardQuality(width, height) {
+    if (width) {
+      if (width >= 3200) return 2160;
+      if (width >= 2200) return 1440;
+      if (width >= 1700) return 1080;
+      if (width >= 1100) return 720;
+      if (width >= 800) return 480;
+      return 360;
+    }
+    if (!height) return 0;
+    if (height >= 1800) return 2160;
+    if (height >= 1300) return 1440;
+    if (height >= 900) return 1080;
+    if (height >= 650) return 720;
+    if (height >= 420) return 480;
+    return 360;
+  }
+
   function streamQuality(stream, done) {
     var best = 0;
     if (stream && stream.quality) {
       Object.keys(stream.quality).forEach(function (k) {
-        best = Math.max(best, parseInt(k, 10) || 0);
+        var q = /4k|uhd/i.test(k) ? 2160 : standardQuality(0, parseInt(k, 10) || 0);
+        best = Math.max(best, q);
       });
     }
     if (best || !stream || !stream.url || !/\.m3u8(\?|$)/i.test(stream.url)) return done(best);
     deviceFetch(stream.url, {}).then(function (text) {
-      var re = /RESOLUTION=\d+x(\d+)/gi;
+      var re = /RESOLUTION=(\d+)x(\d+)/gi;
       var m;
-      while ((m = re.exec(text))) best = Math.max(best, parseInt(m[1], 10) || 0);
+      while ((m = re.exec(text))) best = Math.max(best, standardQuality(parseInt(m[1], 10) || 0, parseInt(m[2], 10) || 0));
       done(best);
     }, function () {
       done(0);
     });
+  }
+
+  function qualityName(q) {
+    return q >= 2160 ? '4K' : q + 'p';
+  }
+
+  function qualityBadge(q) {
+    return q >= 2160 ? '4K' : q >= 1080 ? 'HD ' + q + 'p' : q + 'p';
   }
 
   function OnlineComponent(object) {
@@ -414,7 +443,12 @@
       if (savedIndex >= 0 || sources.length === 1) {
         cur.source = Math.max(0, savedIndex);
         cur.tab = savedIndex >= 0 && saved.tab < tabsOf(sources[cur.source]).length ? saved.tab : 0;
-        return loadCurrent();
+        loadCurrent();
+        // Якість решти джерел міряємо у фоні й підставляємо в назви, щойно вона відома.
+        sources.forEach(function (s) {
+          probeSource(s, refreshQuality);
+        });
+        return;
       }
 
       var left = sources.length;
@@ -440,7 +474,25 @@
       });
     }
 
+    // Оновлює якість на кнопці «Джерело» і в шапці без перебудови екрана (фокус не стрибає).
+    function refreshQuality() {
+      if (destroyed || !sources[cur.source]) return;
+      var src = sources[cur.source];
+      if (upTargets.filter) $(upTargets.filter).text('Джерело: ' + sourceLabel(src));
+      if (src.quality > 0) {
+        var sub = body.find('.uakino-online__head-sub');
+        var badge = sub.find('.uakino-online__badge');
+        if (!badge.length) {
+          badge = $('<span class="uakino-online__badge"></span>');
+          sub.append(badge);
+        }
+        badge.text(qualityBadge(src.quality));
+      }
+    }
+
     function probeSource(source, done) {
+      // Уже виміряно — не повторюємо.
+      if (source.quality !== null && source.quality !== undefined) return done();
       var page = source.pages[0];
       Api.page(page, function (json) {
         source.loaded[page.url] = json;
@@ -582,8 +634,7 @@
     }
 
     function sourceLabel(s) {
-      var q = s.quality > 0 ? ' · ' + s.quality + 'p' : '';
-      return s.name + q;
+      return s.name + (s.quality > 0 ? ' · ' + qualityName(s.quality) : '');
     }
 
     function focusable(el) {
@@ -716,7 +767,7 @@
       if (year) sub.push(year);
       sub.push(src.name);
       head.find('.uakino-online__head-sub').text(sub.join(' · '));
-      if (src.quality > 0) head.find('.uakino-online__head-sub').append($('<span class="uakino-online__badge"></span>').text(src.quality >= 2000 ? '4K' : src.quality >= 1000 ? 'HD ' + src.quality + 'p' : src.quality + 'p'));
+      if (src.quality > 0) head.find('.uakino-online__head-sub').append($('<span class="uakino-online__badge"></span>').text(qualityBadge(src.quality)));
       if (movie.overview) head.find('.uakino-online__head-descr').text(movie.overview);
       body.append(head);
 
