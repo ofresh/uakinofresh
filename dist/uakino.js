@@ -2665,6 +2665,28 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
       };
       Lampa.Parser.uakino_ua_patched = true;
     }
+    var CJK = /[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]/;
+    var englishTitles = {};
+    function withoutBrackets(t) {
+      return String(t || '').replace(/\s*[([][^)\]]*[)\]]\s*/g, ' ').replace(/\s+/g, ' ').trim();
+    }
+    function englishTitle(movie, done) {
+      var original = movie.original_title || movie.original_name || '';
+      if (original && !CJK.test(original)) return done(original);
+      var id = movie.id;
+      var type = movie.name || movie.first_air_date || movie.original_name ? 'tv' : 'movie';
+      if (!id || !Lampa.TMDB || !Lampa.TMDB.api || !Lampa.TMDB.key) return done('');
+      if (englishTitles[type + id] !== undefined) return done(englishTitles[type + id]);
+      var net = new Lampa.Reguest();
+      net.timeout(8000);
+      net.silent(Lampa.TMDB.api(type + '/' + id + '?api_key=' + Lampa.TMDB.key() + '&language=en-US'), function (json) {
+        var name = json && (json.name || json.title) || '';
+        englishTitles[type + id] = CJK.test(name) ? '' : name;
+        done(englishTitles[type + id]);
+      }, function () {
+        done('');
+      });
+    }
     function openTorrents(movie) {
       patchParser();
       if (hasCredentials('toloka') && !cookieFor('toloka')) {
@@ -2673,16 +2695,19 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
         });
       }
       var info = movieInfo(movie);
-      Lampa.Activity.push({
-        url: '',
-        title: TORRENTS_LABEL,
-        component: 'torrents',
-        search: info.original || info.title,
-        search_one: info.title,
-        search_two: info.original,
-        movie: movie,
-        page: 1,
-        uakino_ua: true
+      var local = withoutBrackets(info.title);
+      englishTitle(movie, function (english) {
+        Lampa.Activity.push({
+          url: '',
+          title: TORRENTS_LABEL,
+          component: 'torrents',
+          search: english || local,
+          search_one: local,
+          search_two: english,
+          movie: movie,
+          page: 1,
+          uakino_ua: true
+        });
       });
     }
     function openOnline(movie) {
