@@ -13,6 +13,7 @@ const fs = require('fs');
 const { UAKino } = require('./lib/uakino');
 const { toJackett } = require('./lib/jackett');
 const { createOnline } = require('./lib/online');
+const accounts = require('./lib/accounts');
 
 const env = process.env;
 const config = {
@@ -50,7 +51,7 @@ function send(res, status, body, type) {
     'Content-Type': type || (typeof body === 'string' ? 'text/plain; charset=utf-8' : 'application/json; charset=utf-8'),
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': '*',
-    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Content-Length': isBuf ? data.length : Buffer.byteLength(data),
   });
   res.end(data);
@@ -68,7 +69,7 @@ function createServer(client) {
   });
   return http.createServer(async (req, res) => {
     if (req.method === 'OPTIONS') return send(res, 204, '');
-    if (req.method !== 'GET') return send(res, 405, { error: 'method not allowed' });
+    if (req.method !== 'GET' && !(req.method === 'POST' && req.url.split('?')[0] === '/login')) return send(res, 405, { error: 'method not allowed' });
 
     const url = new URL(req.url, 'http://localhost');
     const q = url.searchParams;
@@ -92,6 +93,22 @@ function createServer(client) {
       }
 
       // Онлайн-перегляд: /online/search, /online/page, /online/stream
+      // Вхід (UAFlix, Толока) і пошук/завантаження на Толоці з cookie користувача.
+      if (url.pathname === '/login' || url.pathname.indexOf('/toloka/') === 0) {
+        let params = q;
+        if (req.method === 'POST') {
+          const body = await new Promise((resolve) => { let b = ''; req.on('data', (c) => { b += c; }); req.on('end', () => resolve(b)); });
+          params = new URLSearchParams(body);
+          q.forEach((v, k) => { if (!params.has(k)) params.set(k, v); });
+        }
+        const r = await accounts.route(url.pathname, params, publicBase(req), fetch);
+        if (r && r.json) return send(res, 200, r.json);
+        if (r && r.torrent) {
+          res.setHeader('Content-Disposition', "attachment; filename*=UTF-8''" + encodeURIComponent(r.name));
+          return send(res, 200, Buffer.from(r.torrent), 'application/x-bittorrent');
+        }
+      }
+
       if (url.pathname.indexOf('/online/') === 0) {
         const data = await online.route(url.pathname, q);
         if (data) return send(res, 200, data);

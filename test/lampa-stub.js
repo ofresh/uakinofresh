@@ -86,7 +86,7 @@
     Utils: { hash: function (s) { return 'h:' + s; }, strToTime: function (s) { return Date.parse(s); } },
     SettingsApi: {
       addComponent: function (c) { window.__settings.push(c.component); },
-      addParam: function (p) { window.__settings.push(p.param.name); }
+      addParam: function (p) { window.__settings.push(p.param.name); (window.__settingsData = window.__settingsData || []).push(p); }
     },
     Reguest: function () {
       var xhr;
@@ -109,6 +109,9 @@
           ok(params.dataType === 'text' ? x.responseText : JSON.parse(x.responseText));
         };
         x.onerror = function () { err(x, 'error'); };
+        if (post && typeof post === 'object') {
+          post = Object.keys(post).map(function (k) { return encodeURIComponent(k) + '=' + encodeURIComponent(post[k]); }).join('&');
+        }
         x.send(post || null);
       }
       this.silent = go;

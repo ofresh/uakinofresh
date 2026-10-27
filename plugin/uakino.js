@@ -13,6 +13,11 @@
   if (window.uakino_torrents_plugin) return;
   window.uakino_torrents_plugin = true;
 
+  // Адреса Worker: сервер підставляє її сюди, коли віддає плагін за /uakino.js.
+  // Через нього виконується вхід на UAFlix/Толоку (Lampa на Android не дає прочитати cookie).
+  var BUILT_IN_SERVER = '__UAKINO_SERVER__';
+  if (BUILT_IN_SERVER.indexOf('__') === 0) BUILT_IN_SERVER = '';
+
   var ICON = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M12 2 3 6v6c0 5 3.8 9.7 9 10 5.2-.3 9-5 9-10V6l-9-4Zm0 4.2 2 4.3H10l2-4.3ZM8 12h8l-4 6-4-6Z"/></svg>';
   var ICON_PLAY = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm-2 14.5v-9l7 4.5-7 4.5Z"/></svg>';
 
@@ -76,6 +81,7 @@
           Referer: o.referer || url.replace(/^(https?:\/\/[^/]+).*$/, '$1/')
         } : {};
         if (o.xhr) headers['X-Requested-With'] = 'XMLHttpRequest';
+        if (o.cookie && method === 'native') headers.Cookie = o.cookie;
         if (o.body) headers['Content-Type'] = 'application/x-www-form-urlencoded; charset=UTF-8';
         net[method](url, function (text) {
           preferred = method;
@@ -111,7 +117,17 @@
   function clientFor(id) {
     var source = sourceById(id);
     var host = hostFor(source);
-    if (!clients[id] || clients[id].host !== host) clients[id] = UAKinoLib.createClient({ source: source, host: host, fetchText: deviceFetch });
+    if (!clients[id] || clients[id].host !== host) {
+      clients[id] = UAKinoLib.createClient({
+        source: source,
+        host: host,
+        // Сайти з акаунтом (UAFlix) отримують cookie входу.
+        fetchText: function (url, o) {
+          var cookie = cookieFor(source.id);
+          return deviceFetch(url, cookie ? Object.assign({}, o, { cookie: cookie }) : o);
+        }
+      });
+    }
     return clients[id];
   }
 
@@ -128,9 +144,69 @@
     });
   }
 
+  // ======================= Акаунти (UAFlix, Толока) =======================
+
+  var ACCOUNTS = [
+    { id: 'uaflix', name: 'UAFlix', descr: 'Повний плеєр замість трейлера для серіалів, що потребують входу' },
+    { id: 'toloka', name: 'Толока', descr: 'Роздачі Толоки в «Торенти (UA)»' }
+  ];
+
+  function cookieFor(id) {
+    return String(Lampa.Storage.get('uakino_cookie_' + id, '') || '');
+  }
+
+  function hasCredentials(id) {
+    return !!(Lampa.Storage.get('uakino_login_' + id, '') && Lampa.Storage.get('uakino_pass_' + id, ''));
+  }
+
+  // Вхід через Worker: він надсилає форму на сайт і повертає cookie, які зберігаються на пристрої.
+  function doLogin(id, done) {
+    var login = Lampa.Storage.get('uakino_login_' + id, '');
+    var password = Lampa.Storage.get('uakino_pass_' + id, '');
+    if (!login || !password) return done(false, 'вкажіть логін і пароль');
+    if (!BUILT_IN_SERVER) return done(false, 'встановіть плагін з адреси Worker (…workers.dev/uakino.js)');
+    var net = new Lampa.Reguest();
+    net.timeout(30000);
+    net.silent(BUILT_IN_SERVER + '/login', function (json) {
+      if (json && json.ok) {
+        Lampa.Storage.set('uakino_cookie_' + id, json.cookie);
+        done(true);
+      } else {
+        Lampa.Storage.set('uakino_cookie_' + id, '');
+        done(false, (json && json.error) || 'помилка входу');
+      }
+    }, function (a, c) {
+      done(false, net.errorDecode ? net.errorDecode(a, c) : "немає з'єднання з Worker");
+    }, { site: id, login: login, password: password });
+  }
+
+  function loginWithNotice(account) {
+    Lampa.Noty.show(account.name + ': вхід…');
+    doLogin(account.id, function (ok, err) {
+      Lampa.Noty.show(account.name + ': ' + (ok ? 'вхід виконано' : err));
+    });
+  }
+
+  // Перед пошуком: якщо логін/пароль є, а входу ще не було — входимо тихо.
+  function ensureLogins(done) {
+    var todo = ACCOUNTS.filter(function (a) { return hasCredentials(a.id) && !cookieFor(a.id); });
+    var left = todo.length;
+    if (!left) return done();
+    todo.forEach(function (a) {
+      doLogin(a.id, function () {
+        if (!--left) done();
+      });
+    });
+  }
+
   var Api = {
     // Шукає одночасно на всіх увімкнених сайтах; помилка — лише якщо ніде нічого не знайдено.
     search: function (m, ok, fail) {
+      var self = this;
+      if (!m.loginChecked) {
+        m.loginChecked = true;
+        return ensureLogins(function () { self.search(m, ok, fail); });
+      }
       var list = enabledSources();
       if (!list.length) return fail('усі сайти вимкнено в налаштуваннях');
       Promise.all(list.map(function (source) {
@@ -406,6 +482,14 @@
       }), alive(function (err) {
         data = null;
         pageError = err;
+        // UAFlix показує лише трейлер — потрібен вхід (або він застарів).
+        if (/після входу/.test(err) && source.id === 'uaflix') {
+          if (!hasCredentials('uaflix')) pageError += '. Вкажіть логін і пароль UAFlix: Налаштування → UAKino';
+          else if (cookieFor('uaflix')) {
+            Lampa.Storage.set('uakino_cookie_uaflix', '');
+            pageError += '. Вхід застарів — відкрийте фільм ще раз, плагін увійде заново';
+          }
+        }
         build();
       }));
     }
@@ -728,21 +812,76 @@
     return UA_LATIN.test(text) || UA_CYRILLIC.test(text) || UA_TRACKERS.test(String((r && r.Tracker) || ''));
   }
 
+  function prepareTorrent(r) {
+    if (Lampa.Utils) {
+      if (Lampa.Utils.bytesToSize && r.Size) r.size = Lampa.Utils.bytesToSize(r.Size);
+      if (Lampa.Utils.hash) r.hash = Lampa.Utils.hash(r.Title);
+      if (Lampa.Utils.strToTime && r.PublishDate) r.PublisTime = Lampa.Utils.strToTime(r.PublishDate);
+    }
+    return r;
+  }
+
+  // Роздачі Толоки (через Worker з cookie користувача) для «Торенти (UA)».
+  function tolokaSearch(params, done) {
+    var cookie = cookieFor('toloka');
+    if (!cookie || !BUILT_IN_SERVER) return done([], '');
+    var net = new Lampa.Reguest();
+    net.timeout(30000);
+    net.silent(BUILT_IN_SERVER + '/toloka/search?q=' + enc(params.search_one || params.search) + '&q2=' + enc(params.search_two || '') + '&cookie=' + enc(cookie), function (json) {
+      done(((json && json.Results) || []).map(prepareTorrent), '');
+    }, function (a) {
+      var err = (a && a.responseJSON && a.responseJSON.error) || 'Толока недоступна';
+      // Вхід застарів — наступного разу увійдемо заново.
+      if (a && a.status === 401) Lampa.Storage.set('uakino_cookie_toloka', '');
+      done([], err);
+    });
+  }
+
   function patchParser() {
     if (!Lampa.Parser || Lampa.Parser.uakino_ua_patched) return;
     var original = Lampa.Parser.get;
     Lampa.Parser.get = function (params, ok, fail) {
       if (!params || !params.uakino_ua) return original.apply(this, arguments);
-      return original.call(this, params, function (data) {
-        if (data && data.Results) data.Results = data.Results.filter(isUkrainian);
+      var pending = 2;
+      var main = null;
+      var mainError = '';
+      var extra = [];
+      var extraError = '';
+      function finish() {
+        if (--pending) return;
+        var results = ((main && main.Results) || []).filter(isUkrainian);
+        var titles = {};
+        results.forEach(function (r) { titles[String(r.Title).toLowerCase()] = true; });
+        extra.forEach(function (r) {
+          if (!titles[String(r.Title).toLowerCase()]) results.push(r);
+        });
+        if (!main && !extra.length) return fail(mainError || extraError || 'нічого не знайдено');
+        var data = main || { Results: [] };
+        data.Results = results;
         ok(data);
-      }, fail);
+      }
+      original.call(this, params, function (data) {
+        main = data;
+        finish();
+      }, function (err) {
+        mainError = err;
+        finish();
+      });
+      tolokaSearch(params, function (list, err) {
+        extra = list;
+        extraError = err;
+        finish();
+      });
     };
     Lampa.Parser.uakino_ua_patched = true;
   }
 
   function openTorrents(movie) {
     patchParser();
+    // Якщо вказано логін Толоки, а входу ще не було — спершу входимо.
+    if (hasCredentials('toloka') && !cookieFor('toloka')) {
+      return doLogin('toloka', function () { openTorrents(movie); });
+    }
     var info = movieInfo(movie);
     Lampa.Activity.push({
       url: '',
@@ -811,6 +950,36 @@
         component: 'uakino',
         param: { name: 'uakino_src_' + source.id, type: 'trigger', default: true },
         field: { name: source.name, description: 'Шукати на ' + source.host.replace(/^https?:\/\//, '') }
+      });
+    });
+    ACCOUNTS.forEach(function (account) {
+      var relogin = function () {
+        if (hasCredentials(account.id)) loginWithNotice(account);
+      };
+      Lampa.SettingsApi.addParam({
+        component: 'uakino',
+        param: { name: 'uakino_title_' + account.id, type: 'title' },
+        field: { name: account.name + ' — акаунт' }
+      });
+      Lampa.SettingsApi.addParam({
+        component: 'uakino',
+        param: { name: 'uakino_login_' + account.id, type: 'input', values: '', default: '', placeholder: 'логін' },
+        field: { name: 'Логін', description: account.descr },
+        onChange: relogin
+      });
+      Lampa.SettingsApi.addParam({
+        component: 'uakino',
+        param: { name: 'uakino_pass_' + account.id, type: 'input', values: '', default: '', placeholder: 'пароль' },
+        field: { name: 'Пароль' },
+        onChange: relogin
+      });
+      Lampa.SettingsApi.addParam({
+        component: 'uakino',
+        param: { name: 'uakino_enter_' + account.id, type: 'button' },
+        field: { name: 'Увійти', description: cookieFor(account.id) ? 'Вхід виконано' : 'Вхід не виконано' },
+        onChange: function () {
+          loginWithNotice(account);
+        }
       });
     });
     SOURCES.forEach(function (source) {

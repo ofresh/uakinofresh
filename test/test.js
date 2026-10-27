@@ -336,6 +336,20 @@ async function pluginFlow(mode) {
     await page.setContent('<div id="full"><div class="full-start-new__buttons"><div class="full-start__button selector view--torrent">Торренти</div></div></div>');
     // Тестовий сайт (розмітка DLE з плейлистом) підставляємо як дзеркало UASerials, решту вимикаємо.
     await page.evaluate(([preset, fail]) => { window.__preset = preset; window.__nativeFail = fail; }, [{ uakino_host_uaserials: up.base, uakino_src_uaflix: false, uakino_src_eneyida: false, uakino_src_uaserial: false }, mode === 'fallback']);
+    // Worker: вхід і пошук Толоки підміняємо (без справжніх сайтів).
+    const loginRequests = [];
+    const tolokaRequests = [];
+    await page.route(/\/login$/, async (route) => {
+      loginRequests.push(Object.fromEntries(new URLSearchParams(route.request().postData())));
+      await route.fulfill({ contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ ok: true, cookie: 'toloka_data=abc' }) });
+    });
+    await page.route(/\/toloka\/search/, async (route) => {
+      tolokaRequests.push(route.request().url());
+      await route.fulfill({ contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify({ Results: [
+        { Title: 'Матчбокс (2026) WEB-DLRip', Tracker: 'Toloka', Size: 1, Link: 'x' },
+        { Title: 'Високий потенціал (Сезон 1) 2160p', Tracker: 'Toloka', Size: 2, Link: 'y' },
+      ] }) });
+    });
     await page.addScriptTag({ path: path.join(__dirname, 'lampa-stub.js') });
     await page.addScriptTag({ url: base + '/uakino.js' });
 
@@ -401,7 +415,24 @@ async function pluginFlow(mode) {
     const settings = await page.evaluate(() => window.__settings);
     assert.deepStrictEqual(settings, ['uakino',
       'uakino_src_uaserials', 'uakino_src_uaflix', 'uakino_src_eneyida', 'uakino_src_uaserial',
+      'uakino_title_uaflix', 'uakino_login_uaflix', 'uakino_pass_uaflix', 'uakino_enter_uaflix',
+      'uakino_title_toloka', 'uakino_login_toloka', 'uakino_pass_toloka', 'uakino_enter_toloka',
       'uakino_host_uaserials', 'uakino_host_uaflix', 'uakino_host_eneyida', 'uakino_host_uaserial']);
+
+    // Акаунти: «Увійти» → Worker /login → cookie зберігається; Толока додає роздачі в «Торенти (UA)».
+    await page.evaluate(() => { Lampa.Storage.set('uakino_login_toloka', 'me'); Lampa.Storage.set('uakino_pass_toloka', 'secret'); });
+    await page.evaluate(() => window.__settingsData.filter((d) => d.param.name === 'uakino_enter_toloka')[0].onChange());
+    await page.waitForFunction(() => Lampa.Storage.get('uakino_cookie_toloka', ''), null, { timeout: 10000 });
+    assert.strictEqual(await page.evaluate(() => Lampa.Storage.get('uakino_cookie_toloka', '')), 'toloka_data=abc');
+    assert.deepStrictEqual(loginRequests, [{ site: 'toloka', login: 'me', password: 'secret' }]);
+    const merged = await page.evaluate(() => new Promise((resolve) => Lampa.Parser.get(window.__pushed, (d) => resolve(d.Results.map((r) => r.Title + ' | ' + r.Tracker)))));
+    assert.deepStrictEqual(merged, [
+      'Matchbox (2026) WEB-DL 2160p HDR | UKR, ENG | Rutor',
+      'Matchbox 2026 1080p [Дубляж Укр] | Other',
+      'Матчбокс (2026) WEB-DLRip | Toloka.to',
+      'Високий потенціал (Сезон 1) 2160p | Toloka',
+    ]);
+    assert.ok(/toloka\/search\?q=%D0%92/.test(tolokaRequests[0]) && /cookie=toloka_data%3Dabc/.test(tolokaRequests[0]), tolokaRequests[0]);
 
     // Усі запити на сайти йдуть з пристрою.
     const natives = await page.evaluate(() => window.__native || 0);
@@ -568,6 +599,56 @@ test('однакові назви: «Керрі» — серіал 2026 vs фі�
 
   const av = await mk('uaserial').findPages({ title: 'Аватар', original: 'Avatar', year: '2009', serial: false });
   assert.deepStrictEqual(av.map((p) => p.url), ['https://uaserial.tv/movie-avatar']);
+});
+
+test('акаунти: вхід UAFlix/Толока (cookie), розбір пошуку Толоки, гість', async () => {
+  const accounts = require('../lib/accounts');
+  const fakeRes = (cookies, status = 302, location = 'index.php', body = '') => ({
+    status,
+    ok: status < 400,
+    headers: { getSetCookie: () => cookies, get: (k) => (k === 'location' ? location : null) },
+    text: async () => body,
+  });
+  const calls = [];
+  const ok = await accounts.login('uaflix', 'me', 'pw', { fetchImpl: async (url, o) => { calls.push([url, o.method, o.body]); return fakeRes(['dle_user_id=77; path=/', 'dle_password=abcdef; path=/', 'PHPSESSID=s1; path=/']); } });
+  assert.deepStrictEqual(ok, { ok: true, cookie: 'dle_user_id=77; dle_password=abcdef; PHPSESSID=s1' });
+  assert.deepStrictEqual(calls[0], ['https://uafix.net/', 'POST', 'login_name=me&login_password=pw&login=submit']);
+  const bad = await accounts.login('uaflix', 'me', 'pw', { fetchImpl: async () => fakeRes(['dle_user_id=0; path=/'], 200, '') });
+  assert.strictEqual(bad.ok, false);
+
+  const data = encodeURIComponent('a:2:{s:11:"autologinid";s:3:"key";s:6:"userid";s:4:"4242";}');
+  const tl = await accounts.login('toloka', 'me', 'pw', { fetchImpl: async (url, o) => { calls.push([url, o.body]); return fakeRes(['toloka_data=' + data + '; expires=x', 'toloka_sid=abc']); } });
+  assert.ok(tl.ok, JSON.stringify(tl));
+  assert.ok(/username=me&password=pw&autologin=on/.test(calls[1][1]));
+  const guest = encodeURIComponent('a:2:{s:11:"autologinid";s:0:"";s:6:"userid";i:-1;}');
+  assert.strictEqual((await accounts.login('toloka', 'me', 'bad', { fetchImpl: async () => fakeRes(['toloka_data=' + guest], 200, '') })).ok, false);
+
+  // Рядки tracker.php (розмітка TorrentPier/phpBB).
+  const row = (id, title, size, s, l) => '<tr class="prow1"><td class="row1"><a href="tracker.php?f=1">Фільми HD</a></td>' +
+    '<td class="row4"><a class="genmed" href="viewtopic.php?t=' + (id + 1000) + '"><b>' + title + '</b></a></td><td class="row1">автор</td>' +
+    '<td class="row4 small"><a class="genmed" href="download.php?id=' + id + '">' + size + '</a></td>' +
+    '<td class="row4 seedmed"><b>' + s + '</b></td><td class="row4 leechmed"><b>' + l + '</b></td><td class="row4 small">2026-01-05 12:00</td></tr>';
+  const html = '<table class="forumline">' + row(11, 'Аватар / Avatar (2009) 2160p UHD BDRemux Ukr/Eng', '61.2 GB', 15, 2) + row(12, 'Аватар (2009) 1080p', '8,5 GB', 3, 0) + '</table><a href="/login.php?logout=true">Вихід</a>';
+  const rows = accounts.parseTolokaResults(html, 'https://toloka.to');
+  assert.deepStrictEqual(rows.map((r) => [r.id, r.title, r.size, r.seeders, r.leechers, r.date]), [
+    ['11', 'Аватар / Avatar (2009) 2160p UHD BDRemux Ukr/Eng', Math.round(61.2 * 1024 ** 3), 15, 2, '2026-01-05'],
+    ['12', 'Аватар (2009) 1080p', Math.round(8.5 * 1024 ** 3), 3, 0, '2026-01-05'],
+  ]);
+  const j = accounts.tolokaToJackett(rows[0], 'https://w.dev', 'toloka_data=x');
+  assert.strictEqual(j.Link, 'https://w.dev/toloka/torrent?id=11&cookie=toloka_data%3Dx');
+  assert.strictEqual(j.Details, 'https://toloka.to/viewtopic.php?t=1011');
+  assert.strictEqual(j.Tracker, 'Toloka');
+
+  const searched = [];
+  const r = await accounts.route('/toloka/search', new URLSearchParams({ q: 'Аватар', q2: 'Avatar', cookie: 'toloka_data=x' }), 'https://w.dev', async (url, o) => {
+    searched.push([decodeURIComponent(url), o.headers.Cookie]);
+    return fakeRes([], 200, '', html);
+  });
+  assert.strictEqual(r.json.Results.length, 2, 'без повторів між двома запитами');
+  assert.deepStrictEqual(searched.map((x) => x[1]), ['toloka_data=x', 'toloka_data=x']);
+
+  // Гість: порожня таблиця і посилання «Вхід» — зрозуміла помилка.
+  await assert.rejects(accounts.tolokaSearch('x', '', { fetchImpl: async () => fakeRes([], 200, '', '<a href="/login.php" rel="nofollow">Вхід</a>') }), /Толока: вхід не виконано/);
 });
 
 // ---------------- online ----------------
