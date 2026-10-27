@@ -415,7 +415,6 @@ async function pluginFlow(mode) {
     const settings = await page.evaluate(() => window.__settings);
     assert.deepStrictEqual(settings, ['uakino',
       'uakino_src_uaserials', 'uakino_src_uaflix', 'uakino_src_eneyida', 'uakino_src_uaserial',
-      'uakino_title_uaflix', 'uakino_login_uaflix', 'uakino_pass_uaflix', 'uakino_enter_uaflix',
       'uakino_title_toloka', 'uakino_login_toloka', 'uakino_pass_toloka', 'uakino_enter_toloka',
       'uakino_host_uaserials', 'uakino_host_uaflix', 'uakino_host_eneyida', 'uakino_host_uaserial']);
 
@@ -617,7 +616,7 @@ test('однакові назви: «Керрі» — серіал 2026 vs фі�
   assert.deepStrictEqual(av.map((p) => p.url), ['https://uaserial.tv/movie-avatar']);
 });
 
-test('акаунти: вхід UAFlix/Толока (cookie), розбір пошуку Толоки, гість', async () => {
+test('акаунт Толоки: вхід (cookie), розбір пошуку, гість', async () => {
   const accounts = require('../lib/accounts');
   const fakeRes = (cookies, status = 302, location = 'index.php', body = '') => ({
     status,
@@ -626,16 +625,11 @@ test('акаунти: вхід UAFlix/Толока (cookie), розбір пош
     text: async () => body,
   });
   const calls = [];
-  const ok = await accounts.login('uaflix', 'me', 'pw', { fetchImpl: async (url, o) => { calls.push([url, o.method, o.body]); return fakeRes(['dle_user_id=77; path=/', 'dle_password=abcdef; path=/', 'PHPSESSID=s1; path=/']); } });
-  assert.deepStrictEqual(ok, { ok: true, cookie: 'dle_user_id=77; dle_password=abcdef; PHPSESSID=s1' });
-  assert.deepStrictEqual(calls[0], ['https://uafix.net/', 'POST', 'login_name=me&login_password=pw&login=submit']);
-  const bad = await accounts.login('uaflix', 'me', 'pw', { fetchImpl: async () => fakeRes(['dle_user_id=0; path=/'], 200, '') });
-  assert.strictEqual(bad.ok, false);
-
+  assert.strictEqual((await accounts.login('uaflix', 'me', 'pw')).ok, false, 'UAFlix вхід не потрібен');
   const data = encodeURIComponent('a:2:{s:11:"autologinid";s:3:"key";s:6:"userid";s:4:"4242";}');
   const tl = await accounts.login('toloka', 'me', 'pw', { fetchImpl: async (url, o) => { calls.push([url, o.body]); return fakeRes(['toloka_data=' + data + '; expires=x', 'toloka_sid=abc']); } });
   assert.ok(tl.ok, JSON.stringify(tl));
-  assert.ok(/username=me&password=pw&autologin=on/.test(calls[1][1]));
+  assert.ok(/username=me&password=pw&autologin=on/.test(calls[0][1]));
   const guest = encodeURIComponent('a:2:{s:11:"autologinid";s:0:"";s:6:"userid";i:-1;}');
   assert.strictEqual((await accounts.login('toloka', 'me', 'bad', { fetchImpl: async () => fakeRes(['toloka_data=' + guest], 200, '') })).ok, false);
 

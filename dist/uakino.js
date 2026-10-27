@@ -1780,7 +1780,6 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
             Referer: o.referer || url.replace(/^(https?:\/\/[^/]+).*$/, '$1/')
           } : {};
           if (o.xhr) headers['X-Requested-With'] = 'XMLHttpRequest';
-          if (o.cookie && method === 'native') headers.Cookie = o.cookie;
           if (o.body) headers['Content-Type'] = 'application/x-www-form-urlencoded; charset=UTF-8';
           net[method](url, function (text) {
             preferred = method;
@@ -1815,18 +1814,11 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
     function clientFor(id) {
       var source = sourceById(id);
       var host = hostFor(source);
-      if (!clients[id] || clients[id].host !== host) {
-        clients[id] = UAKinoLib.createClient({
-          source: source,
-          host: host,
-          fetchText: function fetchText(url, o) {
-            var cookie = cookieFor(source.id);
-            return deviceFetch(url, cookie ? Object.assign({}, o, {
-              cookie: cookie
-            }) : o);
-          }
-        });
-      }
+      if (!clients[id] || clients[id].host !== host) clients[id] = UAKinoLib.createClient({
+        source: source,
+        host: host,
+        fetchText: deviceFetch
+      });
       return clients[id];
     }
     function enabledSources() {
@@ -1841,10 +1833,6 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
       });
     }
     var ACCOUNTS = [{
-      id: 'uaflix',
-      name: 'UAFlix',
-      descr: 'Повний плеєр замість трейлера для серіалів, що потребують входу'
-    }, {
       id: 'toloka',
       name: 'Толока',
       descr: 'Роздачі Толоки в «Торенти (UA)»'
@@ -2205,12 +2193,6 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
         }), alive(function (err) {
           data = null;
           pageError = err;
-          if (/після входу/.test(err) && source.id === 'uaflix') {
-            if (!hasCredentials('uaflix')) pageError += '. Вкажіть логін і пароль UAFlix: Налаштування → UAKino';else if (cookieFor('uaflix')) {
-              Lampa.Storage.set('uakino_cookie_uaflix', '');
-              pageError += '. Вхід застарів — відкрийте фільм ще раз, плагін увійде заново';
-            }
-          }
           build();
         }));
       }

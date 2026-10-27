@@ -14,7 +14,7 @@
   window.uakino_torrents_plugin = true;
 
   // Адреса Worker: сервер підставляє її сюди, коли віддає плагін за /uakino.js.
-  // Через нього виконується вхід на UAFlix/Толоку (Lampa на Android не дає прочитати cookie).
+  // Через нього виконується вхід на Толоку (Lampa на Android не дає прочитати cookie).
   var BUILT_IN_SERVER = '__UAKINO_SERVER__';
   if (BUILT_IN_SERVER.indexOf('__') === 0) BUILT_IN_SERVER = '';
 
@@ -81,7 +81,6 @@
           Referer: o.referer || url.replace(/^(https?:\/\/[^/]+).*$/, '$1/')
         } : {};
         if (o.xhr) headers['X-Requested-With'] = 'XMLHttpRequest';
-        if (o.cookie && method === 'native') headers.Cookie = o.cookie;
         if (o.body) headers['Content-Type'] = 'application/x-www-form-urlencoded; charset=UTF-8';
         net[method](url, function (text) {
           preferred = method;
@@ -117,17 +116,7 @@
   function clientFor(id) {
     var source = sourceById(id);
     var host = hostFor(source);
-    if (!clients[id] || clients[id].host !== host) {
-      clients[id] = UAKinoLib.createClient({
-        source: source,
-        host: host,
-        // Сайти з акаунтом (UAFlix) отримують cookie входу.
-        fetchText: function (url, o) {
-          var cookie = cookieFor(source.id);
-          return deviceFetch(url, cookie ? Object.assign({}, o, { cookie: cookie }) : o);
-        }
-      });
-    }
+    if (!clients[id] || clients[id].host !== host) clients[id] = UAKinoLib.createClient({ source: source, host: host, fetchText: deviceFetch });
     return clients[id];
   }
 
@@ -144,10 +133,9 @@
     });
   }
 
-  // ======================= Акаунти (UAFlix, Толока) =======================
+  // ======================= Акаунт Толоки =======================
 
   var ACCOUNTS = [
-    { id: 'uaflix', name: 'UAFlix', descr: 'Повний плеєр замість трейлера для серіалів, що потребують входу' },
     { id: 'toloka', name: 'Толока', descr: 'Роздачі Толоки в «Торенти (UA)»' }
   ];
 
@@ -482,14 +470,6 @@
       }), alive(function (err) {
         data = null;
         pageError = err;
-        // UAFlix показує лише трейлер — потрібен вхід (або він застарів).
-        if (/після входу/.test(err) && source.id === 'uaflix') {
-          if (!hasCredentials('uaflix')) pageError += '. Вкажіть логін і пароль UAFlix: Налаштування → UAKino';
-          else if (cookieFor('uaflix')) {
-            Lampa.Storage.set('uakino_cookie_uaflix', '');
-            pageError += '. Вхід застарів — відкрийте фільм ще раз, плагін увійде заново';
-          }
-        }
         build();
       }));
     }
