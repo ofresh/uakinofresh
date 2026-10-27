@@ -1,7 +1,8 @@
 'use strict';
 
 // Збирання: node build.js
-//   dist/uakino.js         — плагін Lampa разом з lib/ (парсинг uakino прямо на пристрої)
+//   dist/uakino.js         — плагін Lampa разом з lib/ (парсинг uakino прямо на пристрої), ES5
+// Потрібно: npm install (Babel для компіляції плагіна в ES5).
 //   worker/dist/worker.mjs — Cloudflare Worker одним файлом (можна вставити в редактор на dash.cloudflare.com)
 
 const fs = require('fs');
@@ -60,11 +61,43 @@ function write(file, code) {
 // 1. Плагін
 const lib = bundle('lib/client.js');
 const pluginSource = fs.readFileSync(path.join(root, 'plugin', 'uakino.js'), 'utf8');
-const plugin = '/* UAKino для Lampa — зібрано build.js з plugin/uakino.js та lib/. Не редагуйте вручну. */\n' +
-  '(function () {\n' +
+// Старі ТВ (Android WebView, Tizen, webOS) не розуміють сучасний JS — у Lampa це дає «Script error».
+// Тому плагін компілюється в ES5 (як і сама Lampa) з кількома поліфілами.
+const POLYFILLS = `
+if (!Array.from) Array.from = function (src, fn) {
+  var out = [];
+  if (src && typeof src.length !== 'number' && typeof Symbol !== 'undefined' && src[Symbol.iterator]) {
+    var it = src[Symbol.iterator](), step;
+    while (!(step = it.next()).done) out.push(step.value);
+  } else {
+    for (var i = 0; src && i < src.length; i++) out.push(src[i]);
+  }
+  return fn ? out.map(fn) : out;
+};
+if (!String.fromCodePoint) String.fromCodePoint = function (code) {
+  if (code <= 0xffff) return String.fromCharCode(code);
+  code -= 0x10000;
+  return String.fromCharCode(0xd800 + (code >> 10), 0xdc00 + (code & 0x3ff));
+};
+`;
+
+const modern = '(function () {\n' + POLYFILLS +
   'var UAKinoLib = (function () {\n' + lib.code + 'return __load("lib/client.js");\n})();\n' +
   pluginSource +
   '})();\n';
+
+const babel = require('@babel/core');
+const es5 = babel.transformSync(modern, {
+  babelrc: false,
+  configFile: false,
+  sourceType: 'script',
+  comments: false,
+  presets: [[require.resolve('@babel/preset-env'), { targets: { chrome: '38' }, modules: false }]],
+}).code;
+
+// Хелпери Babel лишаються всередині власної функції, не засмічуючи window.
+const plugin = '/* UAKino для Lampa — зібрано build.js з plugin/uakino.js та lib/ (ES5). Не редагуйте вручну. */\n' +
+  '(function () {\n' + es5 + '\n})();\n';
 write('dist/uakino.js', plugin);
 
 // 2. Worker

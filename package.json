@@ -6,11 +6,16 @@
   "type": "commonjs",
   "main": "server.js",
   "scripts": {
+    "build": "node build.js",
     "start": "node server.js",
     "crawl": "node server.js crawl",
     "test": "node test/test.js"
   },
   "engines": {
     "node": ">=18"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.26.0",
+    "@babel/preset-env": "^7.26.0"
   }
 }
