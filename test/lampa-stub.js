@@ -6,6 +6,8 @@
   Q.prototype.after = function (q) { var n = this.nodes[0]; q.nodes.forEach(function (c) { n.parentNode.insertBefore(c, n.nextSibling); }); return this; };
   Q.prototype.before = function (q) { var n = this.nodes[0]; q.nodes.forEach(function (c) { n.parentNode.insertBefore(c, n); }); return this; };
   Q.prototype.text = function (t) { this.nodes.forEach(function (n) { n.textContent = t; }); return this; };
+  Q.prototype.empty = function () { this.nodes.forEach(function (n) { n.innerHTML = ''; }); return this; };
+  Q.prototype.addClass = function (c) { this.nodes.forEach(function (n) { n.classList.add(c); }); return this; };
   Q.prototype.remove = function () { this.nodes.forEach(function (n) { n.remove(); }); return this; };
   Q.prototype.append = function (q) { var n = this.nodes[0]; if (n) q.nodes.forEach(function (c) { n.appendChild(c); }); return this; };
   Q.prototype.on = function (ev, fn) { this.nodes.forEach(function (n) { n.addEventListener(ev, fn); }); return this; };
@@ -55,6 +57,7 @@
       this.append = function (q) { q.nodes.forEach(function (n) { box.appendChild(n); }); };
       this.clear = function () { box.innerHTML = ''; };
       this.update = function () {};
+      this.minus = function () { window.__minus = true; };
       this.destroy = function () { box.remove(); };
     },
     Player: {

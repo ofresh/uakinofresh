@@ -289,23 +289,43 @@
 
   // ======================= Онлайн =======================
 
+  // Висота відео (1080, 720…) з посилання: з міток якості або з master-плейлиста m3u8.
+  function streamQuality(stream, done) {
+    var best = 0;
+    if (stream && stream.quality) {
+      Object.keys(stream.quality).forEach(function (k) {
+        best = Math.max(best, parseInt(k, 10) || 0);
+      });
+    }
+    if (best || !stream || !stream.url || mode() !== 'direct' || !/\.m3u8(\?|$)/i.test(stream.url)) return done(best);
+    deviceFetch(stream.url, {}).then(function (text) {
+      var re = /RESOLUTION=\d+x(\d+)/gi;
+      var m;
+      while ((m = re.exec(text))) best = Math.max(best, parseInt(m[1], 10) || 0);
+      done(best);
+    }, function () {
+      done(0);
+    });
+  }
+
   function OnlineComponent(object) {
-    var scroll = new Lampa.Scroll({ mask: true, over: true });
+    var scroll = new Lampa.Scroll({ mask: true, over: true, step: 250 });
     var html = $('<div class="uakino-online"></div>');
+    var body = $('<div class="uakino-online__body"></div>');
     var movie = object.movie || {};
     var info = movieInfo(movie);
     var self = this;
-
-    var pages = [];
-    var pageIndex = 0;
-    var data = null;
-    var groups = [];
-    var groupIndex = 0;
+    var destroyed = false;
     var last = null;
     var storeKey = 'uakino_choice_' + (movie.id || info.original || info.title);
-    var destroyed = false;
 
-    // Відповіді, що прийшли після закриття екрана, ігноруються.
+    // Джерела: [{ id, name, pages: [...], loaded: { url: data }, quality }]
+    var sources = [];
+    var cur = { source: 0, tab: 0, voice: 0 };
+    var data = null; // завантажена сторінка поточної вкладки
+    var pageError = '';
+    var keepFocus = ''; // що виділити після перебудови: 'source' | 'voice' | 'tab'
+
     function alive(fn) {
       return function (v) {
         if (!destroyed) fn(v);
@@ -320,69 +340,202 @@
       return c || {};
     }
 
-    function saveChoice() {
-      Lampa.Storage.set(storeKey, { page: pageIndex, group: groups[groupIndex] || '' });
+    function saveChoice(extra) {
+      var c = choice();
+      var src = sources[cur.source];
+      c.source = src ? src.id : c.source;
+      c.tab = cur.tab;
+      c.voice = currentVoices()[cur.voice] || c.voice || '';
+      if (extra) Object.keys(extra).forEach(function (k) { c[k] = extra[k]; });
+      Lampa.Storage.set(storeKey, c);
     }
 
     function message(text) {
-      scroll.clear();
-      scroll.append($('<div class="uakino-online__empty"></div>').text(text));
+      body.empty();
+      body.append($('<div class="uakino-online__empty"></div>').text(text));
       self.activity.loader(false);
       self.activity.toggle();
     }
 
     this.create = function () {
+      scroll.minus();
+      scroll.append(body);
       html.append(scroll.render());
+      scroll.onWheel = function (step) {
+        Navigator.move(step > 0 ? 'down' : 'up');
+      };
       this.activity.loader(true);
-      Api.search(info, alive(function (list) {
-        pages = list || [];
-        if (!pages.length) return message('На UAKino нічого не знайдено');
-        var c = choice();
-        pageIndex = c.page < pages.length ? c.page || 0 : 0;
-        loadPage();
+
+      Api.search(info, alive(function (pages) {
+        var byId = {};
+        (pages || []).forEach(function (p) {
+          if (!byId[p.source]) {
+            byId[p.source] = { id: p.source, name: sourceById(p.source).name, pages: [], loaded: {}, quality: null };
+            sources.push(byId[p.source]);
+          }
+          byId[p.source].pages.push(p);
+        });
+        if (!sources.length) return message('Нічого не знайдено');
+        pickDefault();
       }), alive(function (err) {
         message('UAKino: ' + err);
       }));
       return this.render();
     };
 
-    function loadPage() {
-      self.activity.loader(true);
-      Api.page(pages[pageIndex], alive(function (json) {
-        data = json || { items: [] };
-        groups = [];
-        (data.items || []).forEach(function (item) {
-          if (groups.indexOf(item.group) < 0) groups.push(item.group);
+    // За замовчуванням — джерело, вибране раніше для цього фільму, інакше — з найвищою якістю.
+    function pickDefault() {
+      var saved = choice();
+      var savedIndex = -1;
+      sources.forEach(function (s, i) {
+        if (s.id === saved.source && saved.manual) savedIndex = i;
+      });
+      if (savedIndex >= 0 || sources.length === 1) {
+        cur.source = Math.max(0, savedIndex);
+        cur.tab = savedIndex >= 0 && saved.tab < tabsOf(sources[cur.source]).length ? saved.tab : 0;
+        return loadCurrent();
+      }
+
+      var left = sources.length;
+      var finished = false;
+      var finish = function () {
+        if (finished || destroyed) return;
+        finished = true;
+        var best = 0;
+        sources.forEach(function (s, i) {
+          if ((s.quality || 0) > (sources[best].quality || 0)) best = i;
         });
-        var saved = groups.indexOf(choice().group);
-        groupIndex = saved >= 0 ? saved : 0;
+        cur.source = best;
+        cur.tab = 0;
+        loadCurrent();
+      };
+      // Не чекаємо повільні сайти довше 15 секунд.
+      setTimeout(finish, 15000);
+      sources.forEach(function (s) {
+        probeSource(s, function () {
+          left--;
+          if (!left) finish();
+        });
+      });
+    }
+
+    function probeSource(source, done) {
+      var page = source.pages[0];
+      Api.page(page, function (json) {
+        source.loaded[page.url] = json;
+        var first = (json.items || [])[0];
+        if (!first) return done();
+        resolve(source.id, json, first, function (stream) {
+          streamQuality(stream, function (q) {
+            source.quality = q;
+            done();
+          });
+        }, function () {
+          done();
+        });
+      }, function () {
+        source.quality = -1;
+        done();
+      });
+    }
+
+    // Вкладки сезонів: окремі сторінки сайту (UAKino) або сезони всередині однієї сторінки.
+    function tabsOf(source) {
+      var tabs = [];
+      source.pages.forEach(function (p, pi) {
+        var d = source.loaded[p.url];
+        var seasons = [];
+        if (d) {
+          (d.items || []).forEach(function (it) {
+            var s = it.season || d.season || 0;
+            if (seasons.indexOf(s) < 0) seasons.push(s);
+          });
+          seasons.sort(function (a, b) { return a - b; });
+        }
+        if (seasons.length > 1) {
+          seasons.forEach(function (s) {
+            tabs.push({ page: pi, season: s, label: s ? 'Сезон ' + s : 'Інше' });
+          });
+        } else {
+          var s0 = seasons[0] || p.season || 0;
+          tabs.push({ page: pi, season: null, label: s0 ? 'Сезон ' + s0 : (source.pages.length > 1 ? p.title : 'Фільм') });
+        }
+      });
+      return tabs;
+    }
+
+    function loadCurrent() {
+      var source = sources[cur.source];
+      var tab = tabsOf(source)[cur.tab] || tabsOf(source)[0];
+      var page = source.pages[tab.page];
+      pageError = '';
+      if (source.loaded[page.url]) {
+        data = source.loaded[page.url];
+        return build();
+      }
+      self.activity.loader(true);
+      Api.page(page, alive(function (json) {
+        source.loaded[page.url] = json || { items: [] };
+        data = source.loaded[page.url];
+        // Після завантаження сторінка могла розпастися на кілька сезонів — тримаємо вкладку на ній.
+        var tabs = tabsOf(source);
+        for (var i = 0; i < tabs.length; i++) {
+          if (tabs[i].page === tab.page) { cur.tab = i; break; }
+        }
         build();
       }), alive(function (err) {
-        message('UAKino: ' + err);
+        data = null;
+        pageError = err;
+        build();
       }));
     }
 
-    function currentItems() {
-      var group = groups[groupIndex];
-      return (data && data.items || []).filter(function (item) {
-        return item.group === group;
+    function currentTab() {
+      var tabs = tabsOf(sources[cur.source]);
+      return tabs[cur.tab] || tabs[0];
+    }
+
+    function tabItems() {
+      var tab = currentTab();
+      return ((data && data.items) || []).filter(function (it) {
+        return tab.season === null || (it.season || data.season || 0) === tab.season;
       });
     }
 
-    function pageName(p) {
-      return sourceById(p.source).name + ' · ' + (p.season ? 'Сезон ' + p.season : p.title);
+    function currentVoices() {
+      var voices = [];
+      tabItems().forEach(function (it) {
+        if (voices.indexOf(it.group) < 0) voices.push(it.group);
+      });
+      return voices;
     }
 
-    function filterButton(label, value, onEnter) {
-      var btn = $('<div class="uakino-online__filter selector"><span></span> <b></b></div>');
-      btn.find('span').text(label);
-      btn.find('b').text(value);
-      btn.on('hover:enter', onEnter);
-      btn.on('hover:focus', function (e) {
+    function currentItems() {
+      var voice = currentVoices()[cur.voice];
+      return tabItems().filter(function (it) {
+        return it.group === voice;
+      });
+    }
+
+    function sourceLabel(s) {
+      var q = s.quality > 0 ? ' · ' + s.quality + 'p' : '';
+      return s.name + q;
+    }
+
+    function focusable(el) {
+      el.on('hover:focus', function (e) {
         last = e.target;
         scroll.update($(e.target), true);
       });
-      return btn;
+      return el;
+    }
+
+    function button(label, value, onEnter, active) {
+      var btn = $('<div class="uakino-online__filter selector"></div>');
+      btn.text(label + (value ? ' ' + value : ''));
+      if (active) btn.addClass('uakino-online__filter--active');
+      btn.on('hover:enter', onEnter);
+      return focusable(btn);
     }
 
     function select(title, list, current, onSelect) {
@@ -392,6 +545,7 @@
           return { title: name, selected: i === current, index: i };
         }),
         onSelect: function (a) {
+          Lampa.Controller.toggle('content');
           onSelect(a.index);
         },
         onBack: function () {
@@ -421,35 +575,63 @@
     }
 
     function build() {
-      scroll.clear();
+      body.empty();
       last = null;
+      var voices = currentVoices();
+      if (cur.voice >= voices.length) cur.voice = 0;
 
+      // Ряд 1: джерело й озвучка — доступні завжди, навіть якщо на сайті фільму немає.
       var filters = $('<div class="uakino-online__filters"></div>');
-      if (pages.length > 1) {
-        filters.append(filterButton('Джерело:', pageName(pages[pageIndex]), function () {
-          select('Джерело', pages.map(pageName), pageIndex, function (i) {
-            pageIndex = i;
-            saveChoice();
-            loadPage();
-          });
-        }));
-      }
-      if (groups.length > 1) {
-        filters.append(filterButton('Озвучка:', groups[groupIndex], function () {
-          select('Озвучка', groups, groupIndex, function (i) {
-            groupIndex = i;
+      var sourceBtn, voiceBtn, tabBtn;
+      filters.append(sourceBtn = button('Джерело:', sourceLabel(sources[cur.source]), function () {
+        select('Джерело', sources.map(sourceLabel), cur.source, function (i) {
+          cur.source = i;
+          cur.tab = 0;
+          cur.voice = 0;
+          keepFocus = 'source';
+          saveChoice({ manual: true });
+          loadCurrent();
+        });
+      }));
+      if (voices.length > 1) {
+        filters.append(voiceBtn = button('Озвучка:', voices[cur.voice], function () {
+          select('Озвучка', voices, cur.voice, function (i) {
+            cur.voice = i;
+            keepFocus = 'voice';
             saveChoice();
             build();
           });
         }));
       }
-      scroll.append(filters);
+      body.append(filters);
 
-      var items = currentItems();
-      if (!items.length) {
-        scroll.append($('<div class="uakino-online__empty"></div>').text('На цій сторінці немає відео'));
+      // Ряд 2: вкладки сезонів.
+      var tabs = tabsOf(sources[cur.source]);
+      if (tabs.length > 1) {
+        var row = $('<div class="uakino-online__tabs"></div>');
+        tabs.forEach(function (tab, i) {
+          var tb = button(tab.label, '', function () {
+            if (i === cur.tab) return;
+            cur.tab = i;
+            cur.voice = Math.max(0, currentVoicesFor(i).indexOf(voices[cur.voice]));
+            keepFocus = 'tab';
+            saveChoice();
+            loadCurrent();
+          }, i === cur.tab);
+          if (i === cur.tab) tabBtn = tb;
+          row.append(tb);
+        });
+        body.append(row);
       }
 
+      var items = pageError ? [] : currentItems();
+      if (pageError) {
+        body.append($('<div class="uakino-online__empty"></div>').text(pageError + '. Виберіть інше джерело.'));
+      } else if (!items.length) {
+        body.append($('<div class="uakino-online__empty"></div>').text('На цій сторінці немає відео. Виберіть інше джерело.'));
+      }
+
+      var list = $('<div class="uakino-online__list"></div>');
       items.forEach(function (item, index) {
         var el = $('<div class="uakino-online__item selector"><div class="uakino-online__title"></div><div class="uakino-online__info"></div><div class="uakino-online__timeline"></div></div>');
         el.find('.uakino-online__title').text(item.title || data.title);
@@ -462,20 +644,33 @@
         el.on('hover:enter', function () {
           play(items, index);
         });
-        el.on('hover:focus', function (e) {
-          last = e.target;
-          scroll.update($(e.target), true);
-        });
-        scroll.append(el);
+        list.append(focusable(el));
       });
+      body.append(list);
+
+      // Курсор лишається на кнопці, яку щойно натиснули.
+      var keep = keepFocus === 'tab' ? tabBtn : keepFocus === 'voice' ? voiceBtn : keepFocus === 'source' ? sourceBtn : null;
+      if (keep) last = keep[0];
+      keepFocus = '';
 
       self.activity.loader(false);
       self.activity.toggle();
     }
 
-    function resolve(item, ok, fail) {
+    // Озвучки на іншій вкладці (щоб зберегти вибрану озвучку при перемиканні сезону).
+    function currentVoicesFor(tabIndex) {
+      var tab = tabsOf(sources[cur.source])[tabIndex];
+      var voices = [];
+      ((data && data.items) || []).forEach(function (it) {
+        if (tab && tab.season !== null && (it.season || data.season || 0) !== tab.season) return;
+        if (voices.indexOf(it.group) < 0) voices.push(it.group);
+      });
+      return voices;
+    }
+
+    function resolve(sourceId, page, item, ok, fail) {
       if (item.stream) return ok(item.stream);
-      Api.stream(pages[pageIndex].source, item.url, data.url, function (json) {
+      Api.stream(sourceId, item.url, page.url, function (json) {
         var s = json && json.items && json.items.length ? json.items[0].stream : json;
         if (!s || !s.url) return fail('посилання на відео не знайдено');
         item.stream = s;
@@ -484,8 +679,7 @@
     }
 
     function playerItem(item, stream) {
-      var title = item.title || data.title;
-      var p = { title: title, url: stream.url };
+      var p = { title: item.title || data.title, url: stream.url };
       if (stream.quality) p.quality = stream.quality;
       if (stream.subtitles && stream.subtitles.length) p.subtitles = stream.subtitles;
       var view = timeline(item);
@@ -495,19 +689,19 @@
 
     function play(items, index) {
       var item = items[index];
-      Lampa.Loading && Lampa.Loading.start && Lampa.Loading.start(function () {
-        stopLoading();
-      });
-      resolve(item, function (stream) {
+      var sourceId = sources[cur.source].id;
+      var page = data;
+      if (Lampa.Loading && Lampa.Loading.start) Lampa.Loading.start(function () { stopLoading(); });
+      resolve(sourceId, page, item, function (stream) {
         stopLoading();
         var first = playerItem(item, stream);
         var playlist = items.map(function (it, i) {
           if (i === index) return first;
-          var cell = { title: it.title || data.title };
           if (it.stream) return playerItem(it, it.stream);
+          var cell = { title: it.title || page.title };
           // Посилання на інші серії отримуємо лише коли до них дійде плеєр.
           cell.url = function (call) {
-            resolve(it, function (s) {
+            resolve(sourceId, page, it, function (s) {
               var p = playerItem(it, s);
               cell.url = p.url;
               cell.quality = p.quality;
@@ -533,6 +727,7 @@
     this.start = function () {
       if (Lampa.Activity.active && Lampa.Activity.active().activity !== this.activity) return;
       Lampa.Controller.add('content', {
+        link: this,
         toggle: function () {
           Lampa.Controller.collectionSet(scroll.render());
           Lampa.Controller.collectionFocus(last || false, scroll.render());
@@ -542,14 +737,14 @@
           else Lampa.Controller.toggle('head');
         },
         down: function () {
-          Navigator.move('down');
+          if (Navigator.canmove('down')) Navigator.move('down');
         },
         left: function () {
           if (Navigator.canmove('left')) Navigator.move('left');
           else Lampa.Controller.toggle('menu');
         },
         right: function () {
-          Navigator.move('right');
+          if (Navigator.canmove('right')) Navigator.move('right');
         },
         back: function () {
           Lampa.Activity.backward();
@@ -585,10 +780,12 @@
   // ======================= Інтеграція =======================
 
   var CSS = '<style>' +
-    '.uakino-online{padding:0 1.5em 1.5em}' +
-    '.uakino-online__filters{display:flex;flex-wrap:wrap;margin-bottom:1em}' +
+    '.uakino-online__body{padding:0 1.5em 1.5em}' +
+    '.uakino-online__filters,.uakino-online__tabs{display:flex;flex-wrap:wrap;margin-bottom:.5em}' +
     '.uakino-online__filter{padding:.6em 1.2em;margin:0 1em 1em 0;border-radius:1em;background:rgba(255,255,255,.1)}' +
-    '.uakino-online__item{padding:1em 1.2em;margin-bottom:.7em;border-radius:1em;background:rgba(0,0,0,.3)}' +
+    '.uakino-online__filter--active{background:rgba(255,255,255,.3)}' +
+    '.uakino-online__list{display:block}' +
+    '.uakino-online__item{display:block;padding:1em 1.2em;margin-bottom:.7em;border-radius:1em;background:rgba(0,0,0,.3)}' +
     '.uakino-online__filter.focus,.uakino-online__item.focus{background:#fff;color:#000}' +
     '.uakino-online__title{font-size:1.3em}' +
     '.uakino-online__info{margin-top:.3em;opacity:.6}' +

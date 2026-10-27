@@ -366,18 +366,22 @@ async function pluginFlow(mode) {
     await page.waitForFunction(() => document.querySelectorAll('.uakino-online__item').length === 2, null, { timeout: 15000 });
     const list = await page.$$eval('.uakino-online__item', (els) => els.map((e) => e.querySelector('.uakino-online__title').textContent + ' | ' + e.querySelector('.uakino-online__info').textContent));
     assert.deepStrictEqual(list, ['1 серія | Сезон 1 • ТакТребаПродакшн', '2 серія | Сезон 1 • ТакТребаПродакшн']);
-    const filters = await page.$$eval('.uakino-online__filter', (els) => els.map((e) => e.textContent));
-    assert.deepStrictEqual(filters, ['Джерело: UAKino · Сезон 1', 'Озвучка: ТакТребаПродакшн']);
+    const filters = await page.$$eval('.uakino-online__filters .uakino-online__filter', (els) => els.map((e) => e.textContent));
+    assert.deepStrictEqual(filters, ['Джерело: UAKino', 'Озвучка: ТакТребаПродакшн']);
+    // Сезони — окремі вкладки; активна — перша.
+    const tabs = await page.$$eval('.uakino-online__tabs .uakino-online__filter', (els) => els.map((e) => e.textContent + (e.classList.contains('uakino-online__filter--active') ? '*' : '')));
+    assert.deepStrictEqual(tabs, ['Сезон 1*', 'Сезон 2']);
     assert.strictEqual(await page.evaluate(() => window.__controller), 'content');
+    assert.ok(await page.evaluate(() => window.__minus), 'список має висоту екрана (scroll.minus), інакше не гортається');
 
     // Вибір озвучки
-    await page.evaluate(() => { window.__select = null; window.__enter('.uakino-online__filter:nth-child(2)'); });
+    await page.evaluate(() => { window.__select = null; window.__enter('.uakino-online__filters .uakino-online__filter:nth-child(2)'); });
     await page.evaluate(() => window.__select.onSelect(window.__select.items[1]));
     assert.deepStrictEqual(await page.$$eval('.uakino-online__item .uakino-online__title', (els) => els.map((e) => e.textContent)), ['1 серія']);
-    await page.evaluate(() => { window.__enter('.uakino-online__filter:nth-child(2)'); window.__select.onSelect(window.__select.items[0]); });
+    await page.evaluate(() => { window.__enter('.uakino-online__filters .uakino-online__filter:nth-child(2)'); window.__select.onSelect(window.__select.items[0]); });
 
     // Запуск другої серії: пряме посилання, якість, субтитри, плейлист з лінивим першим пунктом.
-    await page.evaluate(() => window.__enter('.uakino-online__item:nth-of-type(3)'));
+    await page.evaluate(() => window.__enter('.uakino-online__list .uakino-online__item:nth-child(2)'));
     await page.waitForFunction(() => window.__play, null, { timeout: 15000 });
     const played = await page.evaluate(() => ({ play: window.__play, types: window.__playlist.map((p) => typeof p.url) }));
     assert.strictEqual(played.play.url, 'https://cdn.example/1002/1080.m3u8');
@@ -391,10 +395,11 @@ async function pluginFlow(mode) {
     }));
     assert.strictEqual(lazy.url, 'https://cdn.example/1001/1080.m3u8');
 
-    // Перемикання на сторінку другого сезону (плеєр із folders).
-    await page.evaluate(() => { window.__enter('.uakino-online__filter:nth-child(1)'); window.__select.onSelect(window.__select.items[1]); });
+    // Вкладка другого сезону (окрема сторінка з плеєром folders).
+    await page.evaluate(() => window.__enter('.uakino-online__tabs .uakino-online__filter:nth-child(2)'));
     await page.waitForFunction(() => document.querySelector('.uakino-online__item .uakino-online__info') && /Сезон 2/.test(document.querySelector('.uakino-online__item .uakino-online__info').textContent), null, { timeout: 15000 });
     assert.deepStrictEqual(await page.$$eval('.uakino-online__item .uakino-online__title', (els) => els.map((e) => e.textContent)), ['Серія 1', 'Серія 2']);
+    assert.deepStrictEqual(await page.$$eval('.uakino-online__tabs .uakino-online__filter--active', (els) => els.map((e) => e.textContent)), ['Сезон 2']);
     assert.deepStrictEqual(errors, []);
 
     // Settings зареєстровано
