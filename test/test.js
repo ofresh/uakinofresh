@@ -84,6 +84,8 @@ function startUpstream() {
     if (p === '/seriesss/drama_series/27001-vysokyy-potencial-2-sezon.html') return res.end('<h1>Високий потенціал (Сезон 2)</h1><p>Торентів немає</p><iframe id="pre" src="' + base + '/serial/9" allowfullscreen></iframe><iframe src="https://www.youtube.com/embed/x"></iframe>');
     if (p === '/engine/ajax/playlists.php') {
       if (req.headers['x-requested-with'] !== 'XMLHttpRequest' || u.searchParams.get('news_id') !== '25998' || u.searchParams.get('xfield') !== 'playlist') return res.end(JSON.stringify({ success: false }));
+      // Як AniTube: без ключа сторінки — «Помилка 200».
+      if (u.searchParams.get('user_hash') !== 'abc123hash') return res.end(JSON.stringify({ success: false, message: 'Помилка 200' }));
       res.setHeader('Content-Type', 'application/json');
       return res.end(JSON.stringify({ success: true, response: playlistHtml(base) }));
     }
@@ -335,7 +337,7 @@ async function pluginFlow(mode) {
     await page.goto(base + '/health');
     await page.setContent('<div id="full"><div class="full-start-new__buttons"><div class="full-start__button selector view--torrent">Торренти</div></div></div>');
     // Тестовий сайт (розмітка DLE з плейлистом) підставляємо як дзеркало UASerials, решту вимикаємо.
-    await page.evaluate(([preset, fail]) => { window.__preset = preset; window.__nativeFail = fail; }, [{ uakino_host_uaserials: up.base, uakino_src_uaflix: false, uakino_src_eneyida: false, uakino_src_uaserial: false }, mode === 'fallback']);
+    await page.evaluate(([preset, fail]) => { window.__preset = preset; window.__nativeFail = fail; }, [{ uakino_host_uaserials: up.base, uakino_src_uaflix: false, uakino_src_eneyida: false, uakino_src_uaserial: false, uakino_src_anitube: false, uakino_src_animeua: false }, mode === 'fallback']);
     // Worker: вхід і пошук Толоки підміняємо (без справжніх сайтів).
     const loginRequests = [];
     const tolokaRequests = [];
@@ -414,9 +416,9 @@ async function pluginFlow(mode) {
     // Settings зареєстровано
     const settings = await page.evaluate(() => window.__settings);
     assert.deepStrictEqual(settings, ['uakino',
-      'uakino_src_uaserials', 'uakino_src_uaflix', 'uakino_src_eneyida', 'uakino_src_uaserial',
+      'uakino_src_uaserials', 'uakino_src_uaflix', 'uakino_src_eneyida', 'uakino_src_uaserial', 'uakino_src_anitube', 'uakino_src_animeua',
       'uakino_title_toloka', 'uakino_login_toloka', 'uakino_pass_toloka', 'uakino_enter_toloka',
-      'uakino_host_uaserials', 'uakino_host_uaflix', 'uakino_host_eneyida', 'uakino_host_uaserial']);
+      'uakino_host_uaserials', 'uakino_host_uaflix', 'uakino_host_eneyida', 'uakino_host_uaserial', 'uakino_host_anitube', 'uakino_host_animeua']);
 
     // Акаунти: «Увійти» → Worker /login → cookie зберігається; Толока додає роздачі в «Торенти (UA)».
     await page.evaluate(() => { Lampa.Storage.set('uakino_login_toloka', 'me'); Lampa.Storage.set('uakino_pass_toloka', 'secret'); });
@@ -475,7 +477,7 @@ function fakeFetch(log) {
 
 test('інші сайти: пошук, назви з карток, плеєри ashdi/Playerjs і діагностика', async () => {
   const { createClient, SOURCES } = require('../lib/client');
-  assert.deepStrictEqual(SOURCES.map((s) => s.id), ['uakino', 'uaserials', 'uaflix', 'eneyida', 'uaserial']);
+  assert.deepStrictEqual(SOURCES.map((s) => s.id), ['uakino', 'uaserials', 'uaflix', 'eneyida', 'uaserial', 'anitube', 'animeua']);
   const get = (id) => SOURCES.filter((s) => s.id === id)[0];
   const q = { title: 'Високий потенціал', original: 'High Potential' };
 
@@ -606,6 +608,14 @@ test('однакові назви: «Керрі» — серіал 2026 vs фі�
   const any = await ser.findPages({ title: 'Керрі', original: 'Carrie', year: '2013' });
   assert.deepStrictEqual(any.map((p) => p.url), ['https://uaserials.my/4415-kerri.html']);
 
+  // Серіал 1999: сторінка ігрового серіалу 2023 з тією ж назвою відкидається; пізніший сезон — ні.
+  pages['https://uaserials.my/1-op.html'] = '<title>Серіал Ван Піс</title><div>Рік: 1999 Жанр: Серіал</div>';
+  pages['https://uaserials.my/2-op.html'] = '<title>Серіал Ван піс</title><div>Рік: 2023 Жанр: Серіал</div>';
+  pages['https://uaserials.my/3-op-sezon-2.html'] = '<title>Серіал Ван Піс (Сезон 2)</title><div>Рік: 2001 Жанр: Серіал</div>';
+  search.uaserials = ['1-op', '2-op', '3-op-sezon-2'].map((id) => '<div class="short-item"><a class="short-img" href="https://uaserials.my/' + id + '.html"><img alt="Ван Піс"></a><div class="th-title-oname">One Piece</div></div>').join('');
+  const op = await mk('uaserials').findPages({ title: 'Ван Піс', original: 'One Piece', year: '1999', serial: true });
+  assert.deepStrictEqual(op.map((p) => [p.url.split('/').pop(), p.year]), [['1-op.html', 1999], ['3-op-sezon-2.html', 2001]]);
+
   assert.deepStrictEqual(parse.pageMeta(pages['https://uaserial.tv/movie-avatar'], 'https://uaserial.tv/movie-avatar'), { type: 'film', year: 2009 });
   // «Король Талси 2/3/4» — окремі сторінки сезонів з номером цифрою в кінці назви.
   search.uaserials = ['6843-korol-talsy', '4-korol-talsy-2024', '13369-korol-talsy-4'].map((id, i) => '<div class="short-item"><a class="short-img" href="https://uaserials.my/' + id + '.html"><img alt="Король Талси' + ['', ' 2', ' 4'][i] + '"></a><div class="th-title-oname">Tulsa King</div></div>').join('');
@@ -666,10 +676,13 @@ test('акаунт Толоки: вхід (cookie), розбір пошуку, �
 test('online: розбір плейлиста, Playerjs, якості, субтитри', () => {
   const online = require('../lib/online');
   const eps = online.parsePlaylist(playlistHtml('https://uakino.best'), 'https://uakino.best');
-  assert.deepStrictEqual(eps.map((e) => e.group + '|' + e.title), ['ТакТребаПродакшн|1 серія', 'ТакТребаПродакшн|2 серія', 'DniproFilm|1 серія', 'DniproFilm / Трейлер|Трейлер']);
+  assert.deepStrictEqual(eps.map((e) => e.group + '|' + e.title), ['ТакТребаПродакшн|1 серія', 'ТакТребаПродакшн|2 серія', 'DniproFilm|1 серія', 'DniproFilm · Трейлер|Трейлер']);
   // Багаторівневі списки (сезон → озвучка).
   const multi = online.parsePlaylist('<li data-id="0">Сезон 1</li><li data-id="0_0">Voice A</li><li data-file="//ashdi.vip/vod/1" data-id="0_0">Серія 3</li>', 'https://uakino.best');
-  assert.deepStrictEqual(multi, [{ group: 'Сезон 1 / Voice A', title: 'Серія 3', file: 'https://ashdi.vip/vod/1' }]);
+  assert.deepStrictEqual(multi, [{ group: 'Сезон 1 · Voice A', title: 'Серія 3', file: 'https://ashdi.vip/vod/1' }]);
+  // AniTube: «ОЗВУЧУВАННЯ / FANVOXUA / ПЛЕЄР ASHDI» → «FANVOXUA · ASHDI».
+  const at = online.parsePlaylist('<li data-id="0">ОЗВУЧУВАННЯ</li><li data-id="0_0">FANVOXUA</li><li data-id="0_0_0">ПЛЕЄР ASHDI</li><li data-file="//ashdi.vip/vod/5" data-id="0_0_0">1 серія</li>', 'https://anitube.in.ua');
+  assert.deepStrictEqual(at.map((e) => e.group), ['FANVOXUA · ASHDI']);
 
   const single = online.parsePlayerjs('new Playerjs({id:"p",file:"https://cdn/x/index.m3u8"})');
   assert.deepStrictEqual(online.toStream(single.file, single.subtitle), { url: 'https://cdn/x/index.m3u8', quality: null, subtitles: [] });

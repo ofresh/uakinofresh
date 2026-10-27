@@ -14,6 +14,8 @@
 | UAFlix (uafix.net) | ✅ |
 | Eneyida (eneyida.tv) | ✅ |
 | UASerial (uaserial.tv) | ✅ |
+| AniTube (anitube.in.ua) — аніме | ✅ |
+| AnimeUA (animeua.club) — аніме | ✅ |
 
 Кнопка **UAKino** на картці (у меню ▶) шукає на всіх сайтах одночасно; у фільтрі «Джерело» видно,
 що де знайшлося. Кожен сайт можна вимкнути або вказати йому дзеркало в налаштуваннях (розділ UAKino).

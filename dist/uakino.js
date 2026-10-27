@@ -534,7 +534,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
           var type = null;
           var genre = stripTags((html.match(/(Жанр|Тип)\s*:?\s*(<[^>]*>\s*)*[^<]{0,40}/i) || [''])[0]);
           var title = stripTags((html.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1] || '');
-          if (/\/(serials?|seriesss?|series|tv)(\/|-)|sezon|season/i.test(url || '')) type = 'serial';else if (/\/(films?|filmy|filmss|movies?)(\/|-)|\/movie-/i.test(url || '')) type = 'film';else if (/"@type"\s*:\s*"TVSeries"/.test(html)) type = 'serial';else if (/"@type"\s*:\s*"Movie"/.test(html)) type = 'film';else if (/:\s*(мульт)?серіал|:\s*аніме-серіал/i.test(genre)) type = 'serial';else if (/:\s*(мульт)?фільм/i.test(genre)) type = 'film';else if (/^\s*(мульт)?серіал/i.test(title)) type = 'serial';else if (/^\s*(мульт)?фільм/i.test(title)) type = 'film';
+          if (/\/(serials?|seriesss?|series|tv)(\/|-)|sezon|season/i.test(url || '')) type = 'serial';else if (/\/(films?|filmy|filmss|movies?)(\/|-)|\/movie-/i.test(url || '')) type = 'film';else if (/:\s*(мульт)?серіал|:\s*аніме-серіал/i.test(genre)) type = 'serial';else if (/:\s*(мульт)?фільм/i.test(genre)) type = 'film';else if (/^\s*(мульт)?серіал/i.test(title)) type = 'serial';else if (/^\s*(мульт)?фільм/i.test(title)) type = 'film';else if (/сезон|серії|серія|season/i.test(title)) type = 'serial';else if (/"@type"\s*:\s*"TVSeries"/.test(html)) type = 'serial';else if (/"@type"\s*:\s*"Movie"/.test(html)) type = 'film';
           return {
             type: type,
             year: parseYear(html)
@@ -655,12 +655,17 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
             var parts = ep.id ? ep.id.split('_') : [];
             var names = [];
             for (var i = 1; i <= parts.length; i++) {
-              var label = labels[parts.slice(0, i).join('_')];
-              if (label && names.indexOf(label) < 0) names.push(label);
+              var _label = labels[parts.slice(0, i).join('_')];
+              if (_label && names.indexOf(_label) < 0) names.push(_label);
             }
             if (ep.voice && names.indexOf(ep.voice) < 0) names.push(ep.voice);
+            var label = names.filter(function (n) {
+              return !/^(озвучування|озвучка|озвучення)$/i.test(n.trim());
+            }).map(function (n) {
+              return n.trim().replace(/^плеєр\s+/i, '');
+            }).join(' · ');
             return {
-              group: names.join(' / ') || 'UAKino',
+              group: label || 'UAKino',
               title: ep.title,
               file: ep.file
             };
@@ -890,7 +895,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
           }
           function _findPages() {
             _findPages = _asyncToGenerator(_regenerator().m(function _callee7(_ref4) {
-              var _ref4$title, title, _ref4$original, original, _ref4$query, query, _ref4$year, year, serial, titles, found, lastError, _iterator5, _step5, q, _iterator6, _step6, item, list, best, y, qs, seen, _t9, _t0, _t1;
+              var _ref4$title, title, _ref4$original, original, _ref4$query, query, _ref4$year, year, serial, titles, found, lastError, _iterator5, _step5, q, _iterator6, _step6, item, list, best, qs, y, seen, _t9, _t0, _t1;
               return _regenerator().w(function (_context7) {
                 while (1) switch (_context7.p = _context7.n) {
                   case 0:
@@ -967,6 +972,20 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                     list = list.filter(function (p) {
                       return p.score === best;
                     });
+                    if (serial) {
+                      qs = titles.map(parse.baseTitle);
+                      list.forEach(function (p) {
+                        if (p.season) return;
+                        parse.altNames(p).some(function (n) {
+                          var m = parse.baseTitle(n).match(/^(.*\S)\s+(\d{1,2})$/);
+                          if (m && qs.indexOf(m[1]) >= 0) {
+                            p.season = Number(m[2]);
+                            return true;
+                          }
+                          return false;
+                        });
+                      });
+                    }
                     y = Number(year) || 0;
                     if (!(y || list.length > 1)) {
                       _context7.n = 13;
@@ -992,6 +1011,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                             case 2:
                               _context6.p = 2;
                               _t8 = _context6.v;
+                              p.type = parse.pageMeta('', p.url).type;
                             case 3:
                               return _context6.a(2);
                           }
@@ -1002,28 +1022,18 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                       };
                     }()));
                   case 12:
+                    list.slice(8).forEach(function (p) {
+                      p.type = parse.pageMeta('', p.url).type;
+                    });
                     list = list.filter(function (p) {
                       if (p.type && serial !== undefined && serial !== null && p.type !== (serial ? 'serial' : 'film')) return false;
                       if (y && p.year) {
-                        if (serial ? p.year < y - 1 : Math.abs(p.year - y) > 1) return false;
+                        var laterSeason = serial && p.season > 1;
+                        if (laterSeason ? p.year < y - 1 : Math.abs(p.year - y) > 1) return false;
                       }
                       return true;
                     });
                   case 13:
-                    if (serial) {
-                      qs = titles.map(parse.baseTitle);
-                      list.forEach(function (p) {
-                        if (p.season) return;
-                        parse.altNames(p).some(function (n) {
-                          var m = parse.baseTitle(n).match(/^(.*\S)\s+(\d{1,2})$/);
-                          if (m && qs.indexOf(m[1]) >= 0) {
-                            p.season = Number(m[2]);
-                            return true;
-                          }
-                          return false;
-                        });
-                      });
-                    }
                     seen = {};
                     list = list.filter(function (p) {
                       var key = parse.baseTitle(parse.altNames(p)[0]) + '|' + (p.season || 0) + '|' + (p.year || '');
@@ -1103,6 +1113,8 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                                 return {
                                   group: f.path.filter(function (x) {
                                     return !seasonOf(x);
+                                  }).map(function (x) {
+                                    return x.trim();
                                   }).join(' / ') || name,
                                   season: seasonOf(f.path.join(' ')),
                                   title: f.title,
@@ -1211,7 +1223,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                   case 0:
                     url = checkUrl(url, false);
                     return _context11.a(2, cache.wrap('page:' + url, _asyncToGenerator(_regenerator().m(function _callee1() {
-                      var html, page, season, players, items, ajax, text, body, data, found, episodes, _iterator8, _step8, sp, seenEp, errors, inline, st, n, _iterator9, _step9, _loop2, onlyTrailer, diag, _t13, _t14, _t15, _t16, _t17, _t18;
+                      var html, page, season, players, items, playlistError, userHash, ajax, text, body, data, found, episodes, _iterator8, _step8, sp, seenEp, errors, inline, st, n, _iterator9, _step9, _loop2, onlyTrailer, diag, _t13, _t14, _t15, _t16, _t17, _t18;
                       return _regenerator().w(function (_context10) {
                         while (1) switch (_context10.p = _context10.n) {
                           case 0:
@@ -1223,12 +1235,14 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                             season = seasonOf(page.title);
                             players = parsePlayers(html, host, anyPlayer);
                             items = [];
+                            playlistError = '';
                             if (!players.playlist) {
                               _context10.n = 5;
                               break;
                             }
                             _context10.p = 2;
-                            ajax = host + '/engine/ajax/playlists.php?news_id=' + encodeURIComponent(players.playlist.newsId) + '&xfield=' + encodeURIComponent(players.playlist.xfield) + '&time=' + Date.now();
+                            userHash = (html.match(/dle_login_hash\s*=\s*['"]([^'"]+)['"]/) || [])[1];
+                            ajax = host + '/engine/ajax/playlists.php?news_id=' + encodeURIComponent(players.playlist.newsId) + '&xfield=' + encodeURIComponent(players.playlist.xfield) + (userHash ? '&user_hash=' + userHash : '') + '&time=' + Date.now();
                             _context10.n = 3;
                             return fetchText(ajax, {
                               xhr: true,
@@ -1240,6 +1254,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                             try {
                               data = JSON.parse(text);
                               body = data && data.success !== false ? String(data.response || '') : '';
+                              if (data && data.success === false) playlistError = 'плейлист: ' + (data.message || 'відмова сайту');
                             } catch (e) {}
                             items = parsePlaylist(body, host).filter(function (ep) {
                               return !/трейлер|trailer/i.test(ep.group + ' ' + ep.title);
@@ -1336,6 +1351,8 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                                   return {
                                     group: f.path.filter(function (x) {
                                       return !seasonOf(x);
+                                    }).map(function (x) {
+                                      return x.trim();
                                     }).join(' / ') || name,
                                     season: seasonOf(f.path.join(' ')) || season,
                                     title: f.title,
@@ -1445,6 +1462,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                             });
                           case 25:
                             diag = [];
+                            if (playlistError) diag.push(playlistError);
                             if (errors.length) diag.push(errors.slice(0, 3).join('; '));else if (players.iframes.length) diag.push('плеєри: ' + players.iframes.length);
                             diag.push('iframe/хости: ' + (players.seen.length ? players.seen.slice(0, 6).join(', ') : 'немає'));
                             if (/Playerjs/i.test(html)) diag.push('є Playerjs');
@@ -1695,6 +1713,16 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
           host: 'https://uaserial.tv',
           searchPath: '/search?query=',
           linkRe: /^\/(movie|serial|series|cartoon|anime|show)-[^/]+$/
+        }, {
+          id: 'anitube',
+          name: 'AniTube',
+          host: 'https://anitube.in.ua',
+          anime: true
+        }, {
+          id: 'animeua',
+          name: 'AnimeUA',
+          host: 'https://animeua.club',
+          anime: true
         }];
         function getSource(id) {
           return SOURCES.filter(function (s) {
