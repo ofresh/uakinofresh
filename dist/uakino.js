@@ -1374,7 +1374,11 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
               var t = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
               fail(err + '. Головна сторінка відкривається: «' + (t ? t[1].trim().slice(0, 60) : html.length + ' байт') + '»');
             }, function (e) {
-              fail(err + '. Головна сторінка теж не відкривається: ' + e.message);
+              deviceFetch('https://example.com/', {}).then(function () {
+                fail(err + '. Головна сторінка теж не відкривається: ' + e.message + '. Інші сайти з цього пристрою відкриваються — блокується саме uakino');
+              }, function (e2) {
+                fail(err + '. Головна сторінка теж не відкривається: ' + e.message + '. Інші сайти теж не відкриваються: ' + e2.message);
+              });
             });
           });
         }
