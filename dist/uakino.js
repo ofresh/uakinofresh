@@ -1375,7 +1375,14 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
               fail(err + '. Головна сторінка відкривається: «' + (t ? t[1].trim().slice(0, 60) : html.length + ' байт') + '»');
             }, function (e) {
               deviceFetch('https://example.com/', {}).then(function () {
-                fail(err + '. Головна сторінка теж не відкривається: ' + e.message + '. Інші сайти з цього пристрою відкриваються — блокується саме uakino');
+                var plain = siteHost().replace(/^https:/, 'http:') + '/';
+                var base = err + '. Головна сторінка теж не відкривається: ' + e.message + '. Інші сайти з цього пристрою відкриваються — блокується саме uakino';
+                deviceFetch(plain, {}).then(function (html) {
+                  var t = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+                  fail(base + '. По http відповідає: «' + (t ? t[1].trim().slice(0, 80) : html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80)) + '»');
+                }, function (e3) {
+                  fail(base + '. По http: ' + e3.message);
+                });
               }, function (e2) {
                 fail(err + '. Головна сторінка теж не відкривається: ' + e.message + '. Інші сайти теж не відкриваються: ' + e2.message);
               });

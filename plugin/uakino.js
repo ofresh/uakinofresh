@@ -179,7 +179,15 @@
           }, function (e) {
             // Контроль: чи працюють запити з пристрою до інших сайтів.
             deviceFetch('https://example.com/', {}).then(function () {
-              fail(err + '. Головна сторінка теж не відкривається: ' + e.message + '. Інші сайти з цього пристрою відкриваються — блокується саме uakino');
+              // Блокування провайдером зазвичай видно по http:// — віддається його сторінка-заглушка.
+              var plain = siteHost().replace(/^https:/, 'http:') + '/';
+              var base = err + '. Головна сторінка теж не відкривається: ' + e.message + '. Інші сайти з цього пристрою відкриваються — блокується саме uakino';
+              deviceFetch(plain, {}).then(function (html) {
+                var t = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+                fail(base + '. По http відповідає: «' + (t ? t[1].trim().slice(0, 80) : html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80)) + '»');
+              }, function (e3) {
+                fail(base + '. По http: ' + e3.message);
+              });
             }, function (e2) {
               fail(err + '. Головна сторінка теж не відкривається: ' + e.message + '. Інші сайти теж не відкриваються: ' + e2.message);
             });
