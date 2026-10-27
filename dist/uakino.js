@@ -130,14 +130,13 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
           }
           function _torrents() {
             _torrents = _asyncToGenerator(_regenerator().m(function _callee3(_ref2) {
-              var _ref2$title, title, _ref2$original, original, _ref2$query, query, _ref2$year, year, titles, found, lastError, _iterator, _step, q, _iterator2, _step2, item, list, relevant, loaded, out, y, yearOf, _t4, _t5, _t6;
+              var _ref2$title, title, _ref2$original, original, _ref2$query, query, _ref2$year, year, variants, titles, found, lastError, _iterator, _step, q, _iterator2, _step2, item, list, relevant, loaded, out, y, yearOf, _t4, _t5, _t6;
               return _regenerator().w(function (_context3) {
                 while (1) switch (_context3.p = _context3.n) {
                   case 0:
                     _ref2$title = _ref2.title, title = _ref2$title === void 0 ? '' : _ref2$title, _ref2$original = _ref2.original, original = _ref2$original === void 0 ? '' : _ref2$original, _ref2$query = _ref2.query, query = _ref2$query === void 0 ? '' : _ref2$query, _ref2$year = _ref2.year, year = _ref2$year === void 0 ? null : _ref2$year;
-                    titles = [title, original, query].filter(Boolean).filter(function (v, i, a) {
-                      return a.indexOf(v) === i;
-                    }).slice(0, 3);
+                    variants = parse.titleVariants([title, original, query]);
+                    titles = variants.match;
                     if (titles.length) {
                       _context3.n = 1;
                       break;
@@ -146,7 +145,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                   case 1:
                     found = new Map();
                     lastError = null;
-                    _iterator = _createForOfIteratorHelper(titles);
+                    _iterator = _createForOfIteratorHelper(variants.search);
                     _context3.p = 2;
                     _iterator.s();
                   case 3:
@@ -540,7 +539,27 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
             year: parseYear(html)
           };
         }
+        function titleVariants(list) {
+          var all = [];
+          var add = function add(t) {
+            t = String(t || '').trim();
+            if (t && all.indexOf(t) < 0) all.push(t);
+          };
+          list.forEach(function (t) {
+            var short = String(t || '').replace(/\s*[([][^)\]]*[)\]]\s*/g, ' ').replace(/\s+/g, ' ').trim();
+            add(short);
+            add(t);
+          });
+          var cjk = /[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]/;
+          return {
+            match: all,
+            search: all.filter(function (t) {
+              return !cjk.test(t);
+            }).slice(0, 3)
+          };
+        }
         module.exports = {
+          titleVariants: titleVariants,
           pageMeta: pageMeta,
           scoreTitle: scoreTitle,
           baseTitle: baseTitle,
@@ -895,17 +914,16 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
           }
           function _findPages() {
             _findPages = _asyncToGenerator(_regenerator().m(function _callee7(_ref4) {
-              var _ref4$title, title, _ref4$original, original, _ref4$query, query, _ref4$year, year, serial, titles, found, lastError, _iterator5, _step5, q, _iterator6, _step6, item, list, best, qs, y, seen, _t9, _t0, _t1;
+              var _ref4$title, title, _ref4$original, original, _ref4$query, query, _ref4$year, year, serial, variants, titles, found, lastError, _iterator5, _step5, q, _iterator6, _step6, item, list, best, qs, y, seen, _t9, _t0, _t1;
               return _regenerator().w(function (_context7) {
                 while (1) switch (_context7.p = _context7.n) {
                   case 0:
                     _ref4$title = _ref4.title, title = _ref4$title === void 0 ? '' : _ref4$title, _ref4$original = _ref4.original, original = _ref4$original === void 0 ? '' : _ref4$original, _ref4$query = _ref4.query, query = _ref4$query === void 0 ? '' : _ref4$query, _ref4$year = _ref4.year, year = _ref4$year === void 0 ? null : _ref4$year, serial = _ref4.serial;
-                    titles = [title, original, query].filter(Boolean).filter(function (v, i, a) {
-                      return a.indexOf(v) === i;
-                    }).slice(0, 3);
+                    variants = parse.titleVariants([title, original, query]);
+                    titles = variants.match;
                     found = new Map();
                     lastError = null;
-                    _iterator5 = _createForOfIteratorHelper(titles);
+                    _iterator5 = _createForOfIteratorHelper(variants.search);
                     _context7.p = 1;
                     _iterator5.s();
                   case 2:

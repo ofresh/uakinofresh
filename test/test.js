@@ -567,6 +567,13 @@ test('зіставлення: точна назва, без спін-офів, �
   // «… онлайн в HD» з атрибута title (Eneyida) обрізається.
   assert.deepStrictEqual(require('../lib/parse').parseList('<a class="short_img" href="https://eneyida.tv/5-m.html" title="Matchbox: фільм онлайн в HD"></a>', 'https://eneyida.tv').map((i) => i.title), ['Matchbox: фільм']);
 
+  // Назва з уточненням у дужках і японська оригінальна (як у Lampa для аніме).
+  const parse2 = require('../lib/parse');
+  assert.deepStrictEqual(parse2.titleVariants(['Ван Піс (Єдиний скарб)', 'ワンピース']), {
+    match: ['Ван Піс', 'Ван Піс (Єдиний скарб)', 'ワンピース'],
+    search: ['Ван Піс', 'Ван Піс (Єдиний скарб)'],
+  });
+
   const avatar = await fix.findPages({ title: 'Аватар', original: 'Avatar', year: '2009' });
   assert.deepStrictEqual(avatar.map((p) => p.url), ['https://uafix.net/films/avatar-1/'], 'Аватар 3 не збігається, «Аватар (2022)» — інший рік');
 
