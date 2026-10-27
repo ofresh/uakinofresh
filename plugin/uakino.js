@@ -442,33 +442,70 @@
       });
     }
 
-    // Вкладки сезонів: окремі сторінки сайту (UAKino) або сезони всередині однієї сторінки.
+    // Вкладки сезонів: окремі сторінки сайту (UAKino, UASerials) і/або сезони всередині плеєра.
+    // Кожен сезон — одна вкладка, навіть якщо він є на кількох сторінках (плеєр зі всіма сезонами).
     function tabsOf(source) {
       var tabs = [];
+      var seen = {};
+      function add(season, page, label) {
+        var key = season ? 's' + season : 'p' + page;
+        if (seen[key]) return;
+        seen[key] = true;
+        tabs.push({ page: page, season: season || null, label: label });
+      }
       source.pages.forEach(function (p, pi) {
         var d = source.loaded[p.url];
-        var seasons = [];
         if (d) {
+          var seasons = [];
           (d.items || []).forEach(function (it) {
-            var s = it.season || d.season || 0;
+            var s = it.season || d.season || p.season || 0;
             if (seasons.indexOf(s) < 0) seasons.push(s);
           });
-          seasons.sort(function (a, b) { return a - b; });
-        }
-        if (seasons.length > 1) {
-          seasons.forEach(function (s) {
-            tabs.push({ page: pi, season: s, label: s ? 'Сезон ' + s : 'Інше' });
-          });
+          if (seasons.length && seasons.some(function (s) { return s; })) {
+            seasons.forEach(function (s) {
+              add(s, pi, s ? 'Сезон ' + s : 'Інше');
+            });
+          } else {
+            add(null, pi, source.pages.length > 1 ? p.title : 'Фільм');
+          }
+        } else if (p.season) {
+          add(p.season, pi, 'Сезон ' + p.season);
         } else {
-          var s0 = seasons[0] || p.season || 0;
-          tabs.push({ page: pi, season: null, label: s0 ? 'Сезон ' + s0 : (source.pages.length > 1 ? p.title : 'Фільм') });
+          add(null, pi, source.pages.length > 1 ? p.title : 'Фільм');
         }
+      });
+      tabs.sort(function (a, b) {
+        return (a.season || 0) - (b.season || 0) || a.page - b.page;
       });
       return tabs;
     }
 
+    // Сторінки без номера сезону відкриваємо одразу — інакше незрозуміло, які сезони на них.
+    function preloadPages(source, done) {
+      if (source.pages.length < 2) return done();
+      var todo = source.pages.filter(function (p) { return !p.season && !source.loaded[p.url]; });
+      var left = todo.length;
+      if (!left) return done();
+      todo.forEach(function (p) {
+        Api.page(p, alive(function (json) {
+          source.loaded[p.url] = json || { items: [] };
+          if (!--left) done();
+        }), alive(function () {
+          source.loaded[p.url] = { items: [] };
+          if (!--left) done();
+        }));
+      });
+    }
+
     function loadCurrent() {
       var source = sources[cur.source];
+      if (!source.preloaded) {
+        self.activity.loader(true);
+        return preloadPages(source, function () {
+          source.preloaded = true;
+          loadCurrent();
+        });
+      }
       var tab = tabsOf(source)[cur.tab] || tabsOf(source)[0];
       var page = source.pages[tab.page];
       pageError = '';
@@ -480,10 +517,10 @@
       Api.page(page, alive(function (json) {
         source.loaded[page.url] = json || { items: [] };
         data = source.loaded[page.url];
-        // Після завантаження сторінка могла розпастися на кілька сезонів — тримаємо вкладку на ній.
+        // Після завантаження вкладки перебудовуються — тримаємо ту саму (за сезоном або сторінкою).
         var tabs = tabsOf(source);
         for (var i = 0; i < tabs.length; i++) {
-          if (tabs[i].page === tab.page) { cur.tab = i; break; }
+          if ((tab.season && tabs[i].season === tab.season) || (!tab.season && tabs[i].page === tab.page)) { cur.tab = i; break; }
         }
         build();
       }), alive(function (err) {
@@ -498,10 +535,16 @@
       return tabs[cur.tab] || tabs[0];
     }
 
+    // Сезон серії: з плеєра, із заголовка сторінки або з номера сторінки («Король Талси 2»).
+    function seasonOfItem(it, tab) {
+      var p = sources[cur.source].pages[tab.page] || {};
+      return it.season || (data && data.season) || p.season || 0;
+    }
+
     function tabItems() {
       var tab = currentTab();
       return ((data && data.items) || []).filter(function (it) {
-        return tab.season === null || (it.season || data.season || 0) === tab.season;
+        return tab.season === null || seasonOfItem(it, tab) === tab.season;
       });
     }
 
@@ -684,7 +727,7 @@
       var tab = tabsOf(sources[cur.source])[tabIndex];
       var voices = [];
       ((data && data.items) || []).forEach(function (it) {
-        if (tab && tab.season !== null && (it.season || data.season || 0) !== tab.season) return;
+        if (tab && tab.season !== null && seasonOfItem(it, tab) !== tab.season) return;
         if (voices.indexOf(it.group) < 0) voices.push(it.group);
       });
       return voices;

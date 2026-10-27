@@ -849,7 +849,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
           }
           function _findPages() {
             _findPages = _asyncToGenerator(_regenerator().m(function _callee7(_ref4) {
-              var _ref4$title, title, _ref4$original, original, _ref4$query, query, _ref4$year, year, serial, titles, found, lastError, _iterator5, _step5, q, _iterator6, _step6, item, list, best, y, seen, _t9, _t0, _t1;
+              var _ref4$title, title, _ref4$original, original, _ref4$query, query, _ref4$year, year, serial, titles, found, lastError, _iterator5, _step5, q, _iterator6, _step6, item, list, best, y, qs, seen, _t9, _t0, _t1;
               return _regenerator().w(function (_context7) {
                 while (1) switch (_context7.p = _context7.n) {
                   case 0:
@@ -969,6 +969,20 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                       return true;
                     });
                   case 13:
+                    if (serial) {
+                      qs = titles.map(parse.baseTitle);
+                      list.forEach(function (p) {
+                        if (p.season) return;
+                        parse.altNames(p).some(function (n) {
+                          var m = parse.baseTitle(n).match(/^(.*\S)\s+(\d{1,2})$/);
+                          if (m && qs.indexOf(m[1]) >= 0) {
+                            p.season = Number(m[2]);
+                            return true;
+                          }
+                          return false;
+                        });
+                      });
+                    }
                     seen = {};
                     list = list.filter(function (p) {
                       var key = parse.baseTitle(parse.altNames(p)[0]) + '|' + (p.season || 0) + '|' + (p.year || '');
@@ -977,7 +991,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                       return true;
                     });
                     list.sort(function (a, b) {
-                      return (a.season || 0) - (b.season || 0);
+                      return (a.season || 0) - (b.season || 0) || (a.year || 0) - (b.year || 0);
                     });
                     return _context7.a(2, list.map(function (_ref6) {
                       var id = _ref6.id,
@@ -1945,39 +1959,75 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
       }
       function tabsOf(source) {
         var tabs = [];
+        var seen = {};
+        function add(season, page, label) {
+          var key = season ? 's' + season : 'p' + page;
+          if (seen[key]) return;
+          seen[key] = true;
+          tabs.push({
+            page: page,
+            season: season || null,
+            label: label
+          });
+        }
         source.pages.forEach(function (p, pi) {
           var d = source.loaded[p.url];
-          var seasons = [];
           if (d) {
+            var seasons = [];
             (d.items || []).forEach(function (it) {
-              var s = it.season || d.season || 0;
+              var s = it.season || d.season || p.season || 0;
               if (seasons.indexOf(s) < 0) seasons.push(s);
             });
-            seasons.sort(function (a, b) {
-              return a - b;
-            });
-          }
-          if (seasons.length > 1) {
-            seasons.forEach(function (s) {
-              tabs.push({
-                page: pi,
-                season: s,
-                label: s ? 'Сезон ' + s : 'Інше'
+            if (seasons.length && seasons.some(function (s) {
+              return s;
+            })) {
+              seasons.forEach(function (s) {
+                add(s, pi, s ? 'Сезон ' + s : 'Інше');
               });
-            });
+            } else {
+              add(null, pi, source.pages.length > 1 ? p.title : 'Фільм');
+            }
+          } else if (p.season) {
+            add(p.season, pi, 'Сезон ' + p.season);
           } else {
-            var s0 = seasons[0] || p.season || 0;
-            tabs.push({
-              page: pi,
-              season: null,
-              label: s0 ? 'Сезон ' + s0 : source.pages.length > 1 ? p.title : 'Фільм'
-            });
+            add(null, pi, source.pages.length > 1 ? p.title : 'Фільм');
           }
+        });
+        tabs.sort(function (a, b) {
+          return (a.season || 0) - (b.season || 0) || a.page - b.page;
         });
         return tabs;
       }
+      function preloadPages(source, done) {
+        if (source.pages.length < 2) return done();
+        var todo = source.pages.filter(function (p) {
+          return !p.season && !source.loaded[p.url];
+        });
+        var left = todo.length;
+        if (!left) return done();
+        todo.forEach(function (p) {
+          Api.page(p, alive(function (json) {
+            source.loaded[p.url] = json || {
+              items: []
+            };
+            if (! --left) done();
+          }), alive(function () {
+            source.loaded[p.url] = {
+              items: []
+            };
+            if (! --left) done();
+          }));
+        });
+      }
       function loadCurrent() {
         var source = sources[cur.source];
+        if (!source.preloaded) {
+          self.activity.loader(true);
+          return preloadPages(source, function () {
+            source.preloaded = true;
+            loadCurrent();
+          });
+        }
         var tab = tabsOf(source)[cur.tab] || tabsOf(source)[0];
         var page = source.pages[tab.page];
         pageError = '';
@@ -1993,7 +2043,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
           data = source.loaded[page.url];
           var tabs = tabsOf(source);
           for (var i = 0; i < tabs.length; i++) {
-            if (tabs[i].page === tab.page) {
+            if (tab.season && tabs[i].season === tab.season || !tab.season && tabs[i].page === tab.page) {
               cur.tab = i;
               break;
             }
@@ -2009,10 +2059,14 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
         var tabs = tabsOf(sources[cur.source]);
         return tabs[cur.tab] || tabs[0];
       }
+      function seasonOfItem(it, tab) {
+        var p = sources[cur.source].pages[tab.page] || {};
+        return it.season || data && data.season || p.season || 0;
+      }
       function tabItems() {
         var tab = currentTab();
         return (data && data.items || []).filter(function (it) {
-          return tab.season === null || (it.season || data.season || 0) === tab.season;
+          return tab.season === null || seasonOfItem(it, tab) === tab.season;
         });
       }
       function currentVoices() {
@@ -2180,7 +2234,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
         var tab = tabsOf(sources[cur.source])[tabIndex];
         var voices = [];
         (data && data.items || []).forEach(function (it) {
-          if (tab && tab.season !== null && (it.season || data.season || 0) !== tab.season) return;
+          if (tab && tab.season !== null && seasonOfItem(it, tab) !== tab.season) return;
           if (voices.indexOf(it.group) < 0) voices.push(it.group);
         });
         return voices;

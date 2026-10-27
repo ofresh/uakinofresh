@@ -569,6 +569,11 @@ test('однакові назви: «Керрі» — серіал 2026 vs фі�
   assert.deepStrictEqual(any.map((p) => p.url), ['https://uaserials.my/4415-kerri.html']);
 
   assert.deepStrictEqual(parse.pageMeta(pages['https://uaserial.tv/movie-avatar'], 'https://uaserial.tv/movie-avatar'), { type: 'film', year: 2009 });
+  // «Король Талси 2/3/4» — окремі сторінки сезонів з номером цифрою в кінці назви.
+  search.uaserials = ['6843-korol-talsy', '4-korol-talsy-2024', '13369-korol-talsy-4'].map((id, i) => '<div class="short-item"><a class="short-img" href="https://uaserials.my/' + id + '.html"><img alt="Король Талси' + ['', ' 2', ' 4'][i] + '"></a><div class="th-title-oname">Tulsa King</div></div>').join('');
+  const tulsa = await mk('uaserials').findPages({ title: 'Король Талси', original: 'Tulsa King', serial: true });
+  assert.deepStrictEqual(tulsa.map((p) => p.season || null), [null, 2, 4]);
+
   const av = await mk('uaserial').findPages({ title: 'Аватар', original: 'Avatar', year: '2009', serial: false });
   assert.deepStrictEqual(av.map((p) => p.url), ['https://uaserial.tv/movie-avatar']);
 });
