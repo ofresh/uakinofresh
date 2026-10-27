@@ -398,10 +398,14 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
           });
         }
         function parseYear(html) {
+          var ld = html.match(/"dateCreated"\s*:\s*"((?:19|20)\d{2})/);
+          if (ld) return Number(ld[1]);
           var text = stripTags(html);
-          var m = text.match(/Р(?:ік|ок|од)(?: виходу| выхода)?\s*:?\s*((?:19|20)\d{2})/i);
+          var m = text.match(/Р(?:ік|ок|од)(?: виходу| выхода)?\s*:\s*((?:19|20)\d{2})/i);
           if (m) return Number(m[1]);
-          return null;
+          var title = (html.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1] || '';
+          var t = title.match(/(?:^|\D)((?:19|20)\d{2})(?!\d)/);
+          return t ? Number(t[1]) : null;
         }
         function parsePage(html, url, host) {
           var h1 = html.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i);
@@ -526,7 +530,18 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
           var m = String(item.title || '').match(/\((19|20)\d{2}\)/) || String(item.url || '').match(/[-_/]((19|20)\d{2})(?:[-_.][a-z]*)?\.html$/);
           return m ? Number(m[0].replace(/\D/g, '').slice(0, 4)) : null;
         }
+        function pageMeta(html, url) {
+          var type = null;
+          var genre = stripTags((html.match(/(Жанр|Тип)\s*:?\s*(<[^>]*>\s*)*[^<]{0,40}/i) || [''])[0]);
+          var title = stripTags((html.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1] || '');
+          if (/\/(serials?|seriesss?|series|tv)(\/|-)|sezon|season/i.test(url || '')) type = 'serial';else if (/\/(films?|filmy|filmss|movies?)(\/|-)|\/movie-/i.test(url || '')) type = 'film';else if (/"@type"\s*:\s*"TVSeries"/.test(html)) type = 'serial';else if (/"@type"\s*:\s*"Movie"/.test(html)) type = 'film';else if (/:\s*(мульт)?серіал|:\s*аніме-серіал/i.test(genre)) type = 'serial';else if (/:\s*(мульт)?фільм/i.test(genre)) type = 'film';else if (/^\s*(мульт)?серіал/i.test(title)) type = 'serial';else if (/^\s*(мульт)?фільм/i.test(title)) type = 'film';
+          return {
+            type: type,
+            year: parseYear(html)
+          };
+        }
         module.exports = {
+          pageMeta: pageMeta,
           scoreTitle: scoreTitle,
           baseTitle: baseTitle,
           altNames: altNames,
@@ -561,6 +576,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
           return host.replace(/\/+$/, '') + '/' + url.replace(/^\/+/, '');
         }
         function seasonOf(s) {
+          if (/\d+\s*[-–]\s*\d+[\s_-]*(сезон|sezon)/i.test(String(s || ''))) return null;
           var m = String(s || '').match(/(?:сезон|season|sezon)[\s_-]*(\d+)|(\d+)[\s_-]*(?:сезон|sezon)|season\s*(\d+)/i);
           return m ? Number(m[1] || m[2] || m[3]) : null;
         }
@@ -800,36 +816,64 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
             });
             return u.toString();
           }
-          function findPages(_x6) {
+          var htmlCache = new Map();
+          function pageHtml(_x6) {
+            return _pageHtml.apply(this, arguments);
+          }
+          function _pageHtml() {
+            _pageHtml = _asyncToGenerator(_regenerator().m(function _callee5(url) {
+              var html;
+              return _regenerator().w(function (_context5) {
+                while (1) switch (_context5.n) {
+                  case 0:
+                    if (!htmlCache.has(url)) {
+                      _context5.n = 1;
+                      break;
+                    }
+                    return _context5.a(2, htmlCache.get(url));
+                  case 1:
+                    _context5.n = 2;
+                    return fetchText(url, {});
+                  case 2:
+                    html = _context5.v;
+                    if (htmlCache.size > 50) htmlCache.delete(htmlCache.keys().next().value);
+                    htmlCache.set(url, html);
+                    return _context5.a(2, html);
+                }
+              }, _callee5);
+            }));
+            return _pageHtml.apply(this, arguments);
+          }
+          function findPages(_x7) {
             return _findPages.apply(this, arguments);
           }
           function _findPages() {
-            _findPages = _asyncToGenerator(_regenerator().m(function _callee5(_ref4) {
-              var _ref4$title, title, _ref4$original, original, _ref4$query, query, _ref4$year, year, _ref4$serial, serial, titles, found, lastError, _iterator5, _step5, q, _iterator6, _step6, item, list, best, seen, _t7, _t8, _t9;
-              return _regenerator().w(function (_context5) {
-                while (1) switch (_context5.p = _context5.n) {
+            _findPages = _asyncToGenerator(_regenerator().m(function _callee7(_ref4) {
+              var _ref4$title, title, _ref4$original, original, _ref4$query, query, _ref4$year, year, serial, titles, found, lastError, _iterator5, _step5, q, _iterator6, _step6, item, list, best, y, seen, _t9, _t0, _t1;
+              return _regenerator().w(function (_context7) {
+                while (1) switch (_context7.p = _context7.n) {
                   case 0:
-                    _ref4$title = _ref4.title, title = _ref4$title === void 0 ? '' : _ref4$title, _ref4$original = _ref4.original, original = _ref4$original === void 0 ? '' : _ref4$original, _ref4$query = _ref4.query, query = _ref4$query === void 0 ? '' : _ref4$query, _ref4$year = _ref4.year, year = _ref4$year === void 0 ? null : _ref4$year, _ref4$serial = _ref4.serial, serial = _ref4$serial === void 0 ? false : _ref4$serial;
+                    _ref4$title = _ref4.title, title = _ref4$title === void 0 ? '' : _ref4$title, _ref4$original = _ref4.original, original = _ref4$original === void 0 ? '' : _ref4$original, _ref4$query = _ref4.query, query = _ref4$query === void 0 ? '' : _ref4$query, _ref4$year = _ref4.year, year = _ref4$year === void 0 ? null : _ref4$year, serial = _ref4.serial;
                     titles = [title, original, query].filter(Boolean).filter(function (v, i, a) {
                       return a.indexOf(v) === i;
                     }).slice(0, 3);
                     found = new Map();
                     lastError = null;
                     _iterator5 = _createForOfIteratorHelper(titles);
-                    _context5.p = 1;
+                    _context7.p = 1;
                     _iterator5.s();
                   case 2:
                     if ((_step5 = _iterator5.n()).done) {
-                      _context5.n = 7;
+                      _context7.n = 7;
                       break;
                     }
                     q = _step5.value;
-                    _context5.p = 3;
-                    _t7 = _createForOfIteratorHelper;
-                    _context5.n = 4;
+                    _context7.p = 3;
+                    _t9 = _createForOfIteratorHelper;
+                    _context7.n = 4;
                     return searchSite(q);
                   case 4:
-                    _iterator6 = _t7(_context5.v);
+                    _iterator6 = _t9(_context7.v);
                     try {
                       for (_iterator6.s(); !(_step6 = _iterator6.n()).done;) {
                         item = _step6.value;
@@ -846,29 +890,29 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                     } finally {
                       _iterator6.f();
                     }
-                    _context5.n = 6;
+                    _context7.n = 6;
                     break;
                   case 5:
-                    _context5.p = 5;
-                    _t8 = _context5.v;
-                    lastError = _t8;
+                    _context7.p = 5;
+                    _t0 = _context7.v;
+                    lastError = _t0;
                   case 6:
-                    _context5.n = 2;
+                    _context7.n = 2;
                     break;
                   case 7:
-                    _context5.n = 9;
+                    _context7.n = 9;
                     break;
                   case 8:
-                    _context5.p = 8;
-                    _t9 = _context5.v;
-                    _iterator5.e(_t9);
+                    _context7.p = 8;
+                    _t1 = _context7.v;
+                    _iterator5.e(_t1);
                   case 9:
-                    _context5.p = 9;
+                    _context7.p = 9;
                     _iterator5.f();
-                    return _context5.f(9);
+                    return _context7.f(9);
                   case 10:
                     if (!(!found.size && lastError)) {
-                      _context5.n = 11;
+                      _context7.n = 11;
                       break;
                     }
                     throw lastError;
@@ -876,18 +920,58 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                     list = Array.from(found.values()).filter(function (p) {
                       return p.score >= 50;
                     });
-                    if (year && !serial) list = list.filter(function (p) {
-                      return !p.year || Math.abs(p.year - Number(year)) <= 1;
-                    });
                     best = list.reduce(function (m, p) {
                       return Math.max(m, p.score);
                     }, 0);
                     list = list.filter(function (p) {
                       return p.score === best;
                     });
+                    y = Number(year) || 0;
+                    if (!(y || list.length > 1)) {
+                      _context7.n = 13;
+                      break;
+                    }
+                    _context7.n = 12;
+                    return Promise.all(list.slice(0, 8).map(function () {
+                      var _ref5 = _asyncToGenerator(_regenerator().m(function _callee6(p) {
+                        var meta, _t7, _t8;
+                        return _regenerator().w(function (_context6) {
+                          while (1) switch (_context6.p = _context6.n) {
+                            case 0:
+                              _context6.p = 0;
+                              _t7 = parse;
+                              _context6.n = 1;
+                              return pageHtml(p.url);
+                            case 1:
+                              meta = _t7.pageMeta.call(_t7, _context6.v, p.url);
+                              p.type = meta.type;
+                              if (meta.year) p.year = meta.year;
+                              _context6.n = 3;
+                              break;
+                            case 2:
+                              _context6.p = 2;
+                              _t8 = _context6.v;
+                            case 3:
+                              return _context6.a(2);
+                          }
+                        }, _callee6, null, [[0, 2]]);
+                      }));
+                      return function (_x11) {
+                        return _ref5.apply(this, arguments);
+                      };
+                    }()));
+                  case 12:
+                    list = list.filter(function (p) {
+                      if (p.type && serial !== undefined && serial !== null && p.type !== (serial ? 'serial' : 'film')) return false;
+                      if (y && p.year) {
+                        if (serial ? p.year < y - 1 : Math.abs(p.year - y) > 1) return false;
+                      }
+                      return true;
+                    });
+                  case 13:
                     seen = {};
                     list = list.filter(function (p) {
-                      var key = parse.baseTitle(parse.altNames(p)[0]) + '|' + (p.season || 0);
+                      var key = parse.baseTitle(parse.altNames(p)[0]) + '|' + (p.season || 0) + '|' + (p.year || '');
                       if (seen[key]) return false;
                       seen[key] = true;
                       return true;
@@ -895,15 +979,15 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                     list.sort(function (a, b) {
                       return (a.season || 0) - (b.season || 0);
                     });
-                    return _context5.a(2, list.map(function (_ref5) {
-                      var id = _ref5.id,
-                        url = _ref5.url,
-                        t = _ref5.title,
-                        o = _ref5.original,
-                        poster = _ref5.poster,
-                        season = _ref5.season,
-                        score = _ref5.score,
-                        y = _ref5.year;
+                    return _context7.a(2, list.map(function (_ref6) {
+                      var id = _ref6.id,
+                        url = _ref6.url,
+                        t = _ref6.title,
+                        o = _ref6.original,
+                        poster = _ref6.poster,
+                        season = _ref6.season,
+                        score = _ref6.score,
+                        py = _ref6.year;
                       return {
                         id: id,
                         url: url,
@@ -912,37 +996,37 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                         poster: poster,
                         season: season,
                         score: score,
-                        year: y
+                        year: py
                       };
                     }));
                 }
-              }, _callee5, null, [[3, 5], [1, 8, 9, 10]]);
+              }, _callee7, null, [[3, 5], [1, 8, 9, 10]]);
             }));
             return _findPages.apply(this, arguments);
           }
-          function stream(_x7, _x8) {
+          function stream(_x8, _x9) {
             return _stream.apply(this, arguments);
           }
           function _stream() {
-            _stream = _asyncToGenerator(_regenerator().m(function _callee7(url, referer) {
-              return _regenerator().w(function (_context7) {
-                while (1) switch (_context7.n) {
+            _stream = _asyncToGenerator(_regenerator().m(function _callee9(url, referer) {
+              return _regenerator().w(function (_context9) {
+                while (1) switch (_context9.n) {
                   case 0:
                     url = checkUrl(url, true);
-                    return _context7.a(2, cache.wrap('stream:' + url, _asyncToGenerator(_regenerator().m(function _callee6() {
+                    return _context9.a(2, cache.wrap('stream:' + url, _asyncToGenerator(_regenerator().m(function _callee8() {
                       var html, p, s;
-                      return _regenerator().w(function (_context6) {
-                        while (1) switch (_context6.n) {
+                      return _regenerator().w(function (_context8) {
+                        while (1) switch (_context8.n) {
                           case 0:
-                            _context6.n = 1;
+                            _context8.n = 1;
                             return fetchText(url, {
                               referer: referer || host + '/'
                             });
                           case 1:
-                            html = _context6.v;
+                            html = _context8.v;
                             p = parsePlayerjs(html);
                             if (p) {
-                              _context6.n = 2;
+                              _context8.n = 2;
                               break;
                             }
                             throw Object.assign(new Error('не вдалося знайти відео в плеєрі'), {
@@ -950,10 +1034,10 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                             });
                           case 2:
                             if (!p.folders) {
-                              _context6.n = 3;
+                              _context8.n = 3;
                               break;
                             }
-                            return _context6.a(2, {
+                            return _context8.a(2, {
                               items: p.folders.map(function (f) {
                                 return {
                                   group: f.path.filter(function (x) {
@@ -971,57 +1055,57 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                           case 3:
                             s = toStream(p.file, p.subtitle);
                             if (s) {
-                              _context6.n = 4;
+                              _context8.n = 4;
                               break;
                             }
                             throw Object.assign(new Error('порожнє посилання на відео'), {
                               status: 404
                             });
                           case 4:
-                            return _context6.a(2, s);
+                            return _context8.a(2, s);
                         }
-                      }, _callee6);
+                      }, _callee8);
                     }))));
                 }
-              }, _callee7);
+              }, _callee9);
             }));
             return _stream.apply(this, arguments);
           }
-          function loadPage(_x9) {
+          function loadPage(_x0) {
             return _loadPage.apply(this, arguments);
           }
           function _loadPage() {
-            _loadPage = _asyncToGenerator(_regenerator().m(function _callee9(url) {
-              return _regenerator().w(function (_context0) {
-                while (1) switch (_context0.n) {
+            _loadPage = _asyncToGenerator(_regenerator().m(function _callee1(url) {
+              return _regenerator().w(function (_context10) {
+                while (1) switch (_context10.n) {
                   case 0:
                     url = checkUrl(url, false);
-                    return _context0.a(2, cache.wrap('page:' + url, _asyncToGenerator(_regenerator().m(function _callee8() {
-                      var html, page, season, players, items, ajax, text, body, data, errors, inline, st, n, _iterator7, _step7, _loop2, diag, _t1, _t10;
-                      return _regenerator().w(function (_context9) {
-                        while (1) switch (_context9.p = _context9.n) {
+                    return _context10.a(2, cache.wrap('page:' + url, _asyncToGenerator(_regenerator().m(function _callee0() {
+                      var html, page, season, players, items, ajax, text, body, data, errors, inline, st, n, _iterator7, _step7, _loop2, diag, _t11, _t12;
+                      return _regenerator().w(function (_context1) {
+                        while (1) switch (_context1.p = _context1.n) {
                           case 0:
-                            _context9.n = 1;
-                            return fetchText(url, {});
+                            _context1.n = 1;
+                            return pageHtml(url);
                           case 1:
-                            html = _context9.v;
+                            html = _context1.v;
                             page = parse.parsePage(html, url, host);
                             season = seasonOf(page.title);
                             players = parsePlayers(html, host, anyPlayer);
                             items = [];
                             if (!players.playlist) {
-                              _context9.n = 5;
+                              _context1.n = 5;
                               break;
                             }
-                            _context9.p = 2;
+                            _context1.p = 2;
                             ajax = host + '/engine/ajax/playlists.php?news_id=' + encodeURIComponent(players.playlist.newsId) + '&xfield=' + encodeURIComponent(players.playlist.xfield) + '&time=' + Date.now();
-                            _context9.n = 3;
+                            _context1.n = 3;
                             return fetchText(ajax, {
                               xhr: true,
                               referer: url
                             });
                           case 3:
-                            text = _context9.v;
+                            text = _context1.v;
                             body = text;
                             try {
                               data = JSON.parse(text);
@@ -1038,16 +1122,16 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                                 url: ep.file
                               };
                             });
-                            _context9.n = 5;
+                            _context1.n = 5;
                             break;
                           case 4:
-                            _context9.p = 4;
-                            _t1 = _context9.v;
+                            _context1.p = 4;
+                            _t11 = _context1.v;
                             if (players.iframes.length) {
-                              _context9.n = 5;
+                              _context1.n = 5;
                               break;
                             }
-                            throw _t1;
+                            throw _t11;
                           case 5:
                             errors = [];
                             if (!items.length) {
@@ -1078,24 +1162,24 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                               }
                             }
                             if (items.length) {
-                              _context9.n = 12;
+                              _context1.n = 12;
                               break;
                             }
                             n = 0;
                             _iterator7 = _createForOfIteratorHelper(players.iframes.slice(0, 6));
-                            _context9.p = 6;
+                            _context1.p = 6;
                             _loop2 = _regenerator().m(function _loop2() {
-                              var src, s, group, _t0;
-                              return _regenerator().w(function (_context8) {
-                                while (1) switch (_context8.p = _context8.n) {
+                              var src, s, group, _t10;
+                              return _regenerator().w(function (_context0) {
+                                while (1) switch (_context0.p = _context0.n) {
                                   case 0:
                                     src = _step7.value;
                                     n++;
-                                    _context8.p = 1;
-                                    _context8.n = 2;
+                                    _context0.p = 1;
+                                    _context0.n = 2;
                                     return stream(src, url);
                                   case 2:
-                                    s = _context8.v;
+                                    s = _context0.v;
                                     group = players.iframes.length > 1 ? name + ' · плеєр ' + n : name;
                                     if (s.items) items = items.concat(s.items.map(function (i) {
                                       return Object.assign({}, i, {
@@ -1109,41 +1193,41 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                                       episode: null,
                                       stream: s
                                     });
-                                    _context8.n = 4;
+                                    _context0.n = 4;
                                     break;
                                   case 3:
-                                    _context8.p = 3;
-                                    _t0 = _context8.v;
-                                    errors.push(new URL(src).hostname + ': ' + _t0.message);
+                                    _context0.p = 3;
+                                    _t10 = _context0.v;
+                                    errors.push(new URL(src).hostname + ': ' + _t10.message);
                                   case 4:
-                                    return _context8.a(2);
+                                    return _context0.a(2);
                                 }
                               }, _loop2, null, [[1, 3]]);
                             });
                             _iterator7.s();
                           case 7:
                             if ((_step7 = _iterator7.n()).done) {
-                              _context9.n = 9;
+                              _context1.n = 9;
                               break;
                             }
-                            return _context9.d(_regeneratorValues(_loop2()), 8);
+                            return _context1.d(_regeneratorValues(_loop2()), 8);
                           case 8:
-                            _context9.n = 7;
+                            _context1.n = 7;
                             break;
                           case 9:
-                            _context9.n = 11;
+                            _context1.n = 11;
                             break;
                           case 10:
-                            _context9.p = 10;
-                            _t10 = _context9.v;
-                            _iterator7.e(_t10);
+                            _context1.p = 10;
+                            _t12 = _context1.v;
+                            _iterator7.e(_t12);
                           case 11:
-                            _context9.p = 11;
+                            _context1.p = 11;
                             _iterator7.f();
-                            return _context9.f(11);
+                            return _context1.f(11);
                           case 12:
                             if (items.length) {
-                              _context9.n = 13;
+                              _context1.n = 13;
                               break;
                             }
                             diag = [];
@@ -1154,7 +1238,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                               status: 404
                             });
                           case 13:
-                            return _context9.a(2, {
+                            return _context1.a(2, {
                               url: url,
                               title: page.title,
                               original: page.original,
@@ -1164,53 +1248,56 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                               items: items
                             });
                         }
-                      }, _callee8, null, [[6, 10, 11, 12], [2, 4]]);
+                      }, _callee0, null, [[6, 10, 11, 12], [2, 4]]);
                     }))));
                 }
-              }, _callee9);
+              }, _callee1);
             }));
             return _loadPage.apply(this, arguments);
           }
-          function route(_x0, _x1) {
+          function route(_x1, _x10) {
             return _route.apply(this, arguments);
           }
           function _route() {
-            _route = _asyncToGenerator(_regenerator().m(function _callee0(pathname, params) {
-              var _t11;
-              return _regenerator().w(function (_context1) {
-                while (1) switch (_context1.n) {
+            _route = _asyncToGenerator(_regenerator().m(function _callee10(pathname, params) {
+              var serial, _t13;
+              return _regenerator().w(function (_context11) {
+                while (1) switch (_context11.n) {
                   case 0:
                     if (!(pathname === '/online/search')) {
-                      _context1.n = 2;
+                      _context11.n = 2;
                       break;
                     }
-                    _context1.n = 1;
+                    serial = params.get('serial');
+                    _context11.n = 1;
                     return findPages({
                       title: params.get('title') || '',
                       original: params.get('original') || params.get('title_original') || '',
-                      query: params.get('query') || params.get('Query') || ''
+                      query: params.get('query') || params.get('Query') || '',
+                      year: params.get('year') || null,
+                      serial: serial === null || serial === '' ? undefined : serial === '1' || serial === 'true'
                     });
                   case 1:
-                    _t11 = _context1.v;
-                    return _context1.a(2, {
-                      pages: _t11
+                    _t13 = _context11.v;
+                    return _context11.a(2, {
+                      pages: _t13
                     });
                   case 2:
                     if (!(pathname === '/online/page')) {
-                      _context1.n = 3;
+                      _context11.n = 3;
                       break;
                     }
-                    return _context1.a(2, loadPage(params.get('url') || ''));
+                    return _context11.a(2, loadPage(params.get('url') || ''));
                   case 3:
                     if (!(pathname === '/online/stream')) {
-                      _context1.n = 4;
+                      _context11.n = 4;
                       break;
                     }
-                    return _context1.a(2, stream(params.get('url') || '', params.get('referer') ? checkUrl(params.get('referer'), false) : ''));
+                    return _context11.a(2, stream(params.get('url') || '', params.get('referer') ? checkUrl(params.get('referer'), false) : ''));
                   case 4:
-                    return _context1.a(2, null);
+                    return _context11.a(2, null);
                 }
-              }, _callee0);
+              }, _callee10);
             }));
             return _route.apply(this, arguments);
           }
@@ -1280,22 +1367,22 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
         function simplify(q) {
           return q.split(/[:–—(]/)[0].replace(/[^0-9a-zA-ZÀ-ɏЀ-ӿ ]+/g, ' ').replace(/\s+/g, ' ').trim();
         }
-        function searchDle(_x10, _x11, _x12, _x13) {
+        function searchDle(_x12, _x13, _x14, _x15) {
           return _searchDle.apply(this, arguments);
         }
         function _searchDle() {
-          _searchDle = _asyncToGenerator(_regenerator().m(function _callee1(host, query, fetchText, source) {
-            var q, queries, short, errors, ok, _i, _queries, story, attempts, _i2, _attempts, _attempts$_i, method, url, body, list, err, _t12, _t13;
-            return _regenerator().w(function (_context10) {
-              while (1) switch (_context10.p = _context10.n) {
+          _searchDle = _asyncToGenerator(_regenerator().m(function _callee11(host, query, fetchText, source) {
+            var q, queries, short, errors, ok, _i, _queries, story, attempts, _i2, _attempts, _attempts$_i, method, url, body, list, err, _t14, _t15;
+            return _regenerator().w(function (_context12) {
+              while (1) switch (_context12.p = _context12.n) {
                 case 0:
                   source = source || {};
                   q = String(query || '').trim();
                   if (!(q.length < 2)) {
-                    _context10.n = 1;
+                    _context12.n = 1;
                     break;
                   }
-                  return _context10.a(2, []);
+                  return _context12.a(2, []);
                 case 1:
                   queries = [q];
                   short = simplify(q);
@@ -1305,7 +1392,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                   _i = 0, _queries = queries;
                 case 2:
                   if (!(_i < _queries.length)) {
-                    _context10.n = 10;
+                    _context12.n = 10;
                     break;
                   }
                   story = _queries[_i];
@@ -1313,52 +1400,52 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                   _i2 = 0, _attempts = attempts;
                 case 3:
                   if (!(_i2 < _attempts.length)) {
-                    _context10.n = 9;
+                    _context12.n = 9;
                     break;
                   }
                   _attempts$_i = _slicedToArray(_attempts[_i2], 3), method = _attempts$_i[0], url = _attempts$_i[1], body = _attempts$_i[2];
-                  _context10.p = 4;
-                  _t12 = parse;
-                  _context10.n = 5;
+                  _context12.p = 4;
+                  _t14 = parse;
+                  _context12.n = 5;
                   return fetchText(url, method === 'POST' ? {
                     method: method,
                     body: body
                   } : {});
                 case 5:
-                  list = _t12.parseList.call(_t12, _context10.v, host, source.linkRe);
+                  list = _t14.parseList.call(_t14, _context12.v, host, source.linkRe);
                   ok = true;
                   if (!list.length) {
-                    _context10.n = 6;
+                    _context12.n = 6;
                     break;
                   }
-                  return _context10.a(2, list);
+                  return _context12.a(2, list);
                 case 6:
-                  _context10.n = 8;
+                  _context12.n = 8;
                   break;
                 case 7:
-                  _context10.p = 7;
-                  _t13 = _context10.v;
-                  errors.push(method + ': ' + _t13.message);
+                  _context12.p = 7;
+                  _t15 = _context12.v;
+                  errors.push(method + ': ' + _t15.message);
                 case 8:
                   _i2++;
-                  _context10.n = 3;
+                  _context12.n = 3;
                   break;
                 case 9:
                   _i++;
-                  _context10.n = 2;
+                  _context12.n = 2;
                   break;
                 case 10:
                   if (ok) {
-                    _context10.n = 11;
+                    _context12.n = 11;
                     break;
                   }
                   err = new Error('пошук не вдався (' + errors.join('; ') + ')');
                   err.status = 502;
                   throw err;
                 case 11:
-                  return _context10.a(2, []);
+                  return _context12.a(2, []);
               }
-            }, _callee1, null, [[4, 7]]);
+            }, _callee11, null, [[4, 7]]);
           }));
           return _searchDle.apply(this, arguments);
         }
@@ -1573,7 +1660,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
       },
       search: function search(m, ok, fail) {
         if (mode() === 'server') {
-          return serverGet('/online/search?title=' + enc(m.title) + '&original=' + enc(m.original) + '&year=' + enc(m.year), function (json) {
+          return serverGet('/online/search?title=' + enc(m.title) + '&original=' + enc(m.original) + '&year=' + enc(m.year) + '&serial=' + (m.serial ? 1 : 0), function (json) {
             ok((json && json.pages || []).map(function (p) {
               p.source = 'uakino';
               return p;

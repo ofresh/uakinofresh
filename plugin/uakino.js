@@ -190,7 +190,7 @@
     // Шукає одночасно на всіх увімкнених сайтах; помилка — лише якщо ніде нічого не знайдено.
     search: function (m, ok, fail) {
       if (mode() === 'server') {
-        return serverGet('/online/search?title=' + enc(m.title) + '&original=' + enc(m.original) + '&year=' + enc(m.year), function (json) {
+        return serverGet('/online/search?title=' + enc(m.title) + '&original=' + enc(m.original) + '&year=' + enc(m.year) + '&serial=' + (m.serial ? 1 : 0), function (json) {
           ok(((json && json.pages) || []).map(function (p) { p.source = 'uakino'; return p; }));
         }, fail);
       }

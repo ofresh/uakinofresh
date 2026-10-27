@@ -528,6 +528,45 @@ test('зіставлення: точна назва, без спін-офів, �
   assert.deepStrictEqual(hp.map((p) => [p.season, p.original]), [[1, 'High Potential'], [2, 'High Potential']]);
 });
 
+test('однакові назви: «Керрі» — серіал 2026 vs фільми 1976/2013 за типом і роком зі сторінки', async () => {
+  const { createOnline } = require('../lib/online');
+  const parse = require('../lib/parse');
+  const { getSource } = require('../lib/sources');
+  const filterMenu = '<div class="filter">Рік</div><a href="/year-2026">2026</a><a href="/year-2025">2025</a>';
+  const pages = {
+    'https://uaserials.my/5260-kerri.html': '<title>Фільм «Керрі» 1976 українською онлайн</title><div>Рік: 1976 Жанр: Фільм , Драма</div>',
+    'https://uaserials.my/4415-kerri.html': '<title>Фільм «Керрі» 2013 українською онлайн</title><div>Рік: 2013 Жанр: Фільм , Жахи</div>',
+    'https://uaserials.my/13350-kerri.html': '<title>Серіал Керрі 1 сезон дивитися українською онлайн</title><div>Рік: 2026 Жанр: Серіал , Жахи</div>',
+    // UASerial: рік лише в schema.org і <title>; у меню фільтрів — «Рік 2026».
+    'https://uaserial.tv/movie-avatar': '<title>Аватар 2009 фільм онлайн українською в HD</title>' + filterMenu + '<script type="application/ld+json">{"@type":"Movie","dateCreated":"2009-12-10"}</script>',
+  };
+  const search = {
+    uaserials: ['5260', '4415', '13350'].map((id) => '<div class="short-item"><a class="short-img" href="https://uaserials.my/' + id + '-kerri.html"><img alt="Керрі"></a><div class="th-title-oname">Carrie</div></div>').join(''),
+    uaserial: '<a href="/movie-avatar" title="Аватар"></a>',
+  };
+  const mk = (id) => {
+    const source = getSource(id);
+    return createOnline({
+      host: source.host,
+      name: source.name,
+      fetchText: async (url) => { if (pages[url]) return pages[url]; throw new Error('404 ' + url); },
+      searchSite: async () => parse.parseList(search[id], source.host, source.linkRe),
+    });
+  };
+  const ser = mk('uaserials');
+  const serial = await ser.findPages({ title: 'Керрі', original: 'Carrie', year: '2026', serial: true });
+  assert.deepStrictEqual(serial.map((p) => [p.url, p.year]), [['https://uaserials.my/13350-kerri.html', 2026]]);
+  const film = await ser.findPages({ title: 'Керрі', original: 'Carrie', year: '1976', serial: false });
+  assert.deepStrictEqual(film.map((p) => p.url), ['https://uaserials.my/5260-kerri.html']);
+  // Тип невідомий (серверний запит без serial) — фільтр лише за роком.
+  const any = await ser.findPages({ title: 'Керрі', original: 'Carrie', year: '2013' });
+  assert.deepStrictEqual(any.map((p) => p.url), ['https://uaserials.my/4415-kerri.html']);
+
+  assert.deepStrictEqual(parse.pageMeta(pages['https://uaserial.tv/movie-avatar'], 'https://uaserial.tv/movie-avatar'), { type: 'film', year: 2009 });
+  const av = await mk('uaserial').findPages({ title: 'Аватар', original: 'Avatar', year: '2009', serial: false });
+  assert.deepStrictEqual(av.map((p) => p.url), ['https://uaserial.tv/movie-avatar']);
+});
+
 // ---------------- online ----------------
 
 test('online: розбір плейлиста, Playerjs, якості, субтитри', () => {
