@@ -1916,11 +1916,30 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
         password: password
       });
     }
+    function accountStatus(account) {
+      var login = Lampa.Storage.get('uakino_login_' + account.id, '');
+      return cookieFor(account.id) ? 'Вхід виконано' + (login ? ' (' + login + ')' : '') : 'Вхід не виконано';
+    }
+    function refreshAccountUI(account) {
+      var logged = !!cookieFor(account.id);
+      var enter = $('.settings-param[data-name="uakino_enter_' + account.id + '"]');
+      enter.find('.settings-param__name').text(logged ? 'Вийти' : 'Увійти');
+      enter.find('.settings-param__descr').text(accountStatus(account));
+      $('.settings-param[data-name="uakino_pass_' + account.id + '"]').toggleClass('hide', logged);
+    }
     function loginWithNotice(account) {
       Lampa.Noty.show(account.name + ': вхід…');
       doLogin(account.id, function (ok, err) {
         Lampa.Noty.show(account.name + ': ' + (ok ? 'вхід виконано' : err));
+        refreshAccountUI(account);
       });
+    }
+    function logout(account) {
+      Lampa.Storage.set('uakino_cookie_' + account.id, '');
+      Lampa.Storage.set('uakino_pass_' + account.id, '');
+      $('.settings-param[data-name="uakino_pass_' + account.id + '"] .settings-param__value').text('');
+      Lampa.Noty.show(account.name + ': вихід виконано');
+      refreshAccountUI(account);
     }
     function ensureLogins(done) {
       var todo = ACCOUNTS.filter(function (a) {
@@ -2731,7 +2750,10 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
           field: {
             name: 'Пароль'
           },
-          onChange: relogin
+          onChange: relogin,
+          onRender: function onRender(item) {
+            item.toggleClass('hide', !!cookieFor(account.id));
+          }
         });
         Lampa.SettingsApi.addParam({
           component: 'uakino',
@@ -2741,10 +2763,15 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
           },
           field: {
             name: 'Увійти',
-            description: cookieFor(account.id) ? 'Вхід виконано' : 'Вхід не виконано'
+            description: 'Вхід не виконано'
+          },
+          onRender: function onRender(item) {
+            var logged = !!cookieFor(account.id);
+            item.find('.settings-param__name').text(logged ? 'Вийти' : 'Увійти');
+            item.find('.settings-param__descr').text(accountStatus(account));
           },
           onChange: function onChange() {
-            loginWithNotice(account);
+            if (cookieFor(account.id)) logout(account);else loginWithNotice(account);
           }
         });
       });

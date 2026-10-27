@@ -190,11 +190,34 @@
     }, { site: id, login: login, password: password });
   }
 
+  function accountStatus(account) {
+    var login = Lampa.Storage.get('uakino_login_' + account.id, '');
+    return cookieFor(account.id) ? 'Вхід виконано' + (login ? ' (' + login + ')' : '') : 'Вхід не виконано';
+  }
+
+  // Оновлює відкриті налаштування: стан, напис «Увійти/Вийти», поле пароля ховається після входу.
+  function refreshAccountUI(account) {
+    var logged = !!cookieFor(account.id);
+    var enter = $('.settings-param[data-name="uakino_enter_' + account.id + '"]');
+    enter.find('.settings-param__name').text(logged ? 'Вийти' : 'Увійти');
+    enter.find('.settings-param__descr').text(accountStatus(account));
+    $('.settings-param[data-name="uakino_pass_' + account.id + '"]').toggleClass('hide', logged);
+  }
+
   function loginWithNotice(account) {
     Lampa.Noty.show(account.name + ': вхід…');
     doLogin(account.id, function (ok, err) {
       Lampa.Noty.show(account.name + ': ' + (ok ? 'вхід виконано' : err));
+      refreshAccountUI(account);
     });
+  }
+
+  function logout(account) {
+    Lampa.Storage.set('uakino_cookie_' + account.id, '');
+    Lampa.Storage.set('uakino_pass_' + account.id, '');
+    $('.settings-param[data-name="uakino_pass_' + account.id + '"] .settings-param__value').text('');
+    Lampa.Noty.show(account.name + ': вихід виконано');
+    refreshAccountUI(account);
   }
 
   // Перед пошуком: якщо логін/пароль є, а входу ще не було — входимо тихо.
@@ -1005,14 +1028,25 @@
         component: 'uakino',
         param: { name: 'uakino_pass_' + account.id, type: 'input', values: '', default: '', placeholder: 'пароль' },
         field: { name: 'Пароль' },
-        onChange: relogin
+        onChange: relogin,
+        // Після входу пароль не показуємо.
+        onRender: function (item) {
+          item.toggleClass('hide', !!cookieFor(account.id));
+        }
       });
       Lampa.SettingsApi.addParam({
         component: 'uakino',
         param: { name: 'uakino_enter_' + account.id, type: 'button' },
-        field: { name: 'Увійти', description: cookieFor(account.id) ? 'Вхід виконано' : 'Вхід не виконано' },
+        field: { name: 'Увійти', description: 'Вхід не виконано' },
+        // Стан рахуємо щоразу при відкритті налаштувань, а не один раз при запуску.
+        onRender: function (item) {
+          var logged = !!cookieFor(account.id);
+          item.find('.settings-param__name').text(logged ? 'Вийти' : 'Увійти');
+          item.find('.settings-param__descr').text(accountStatus(account));
+        },
         onChange: function () {
-          loginWithNotice(account);
+          if (cookieFor(account.id)) logout(account);
+          else loginWithNotice(account);
         }
       });
     });
