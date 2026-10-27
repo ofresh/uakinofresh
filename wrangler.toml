@@ -2,6 +2,8 @@
 name = "uakino"
 main = "worker/dist/worker.mjs"
 compatibility_date = "2025-01-01"
+# Публічна адреса https://uakino.<акаунт>.workers.dev (без неї — "workers.dev disabled")
+workers_dev = true
 
 [vars]
 UAKINO_HOST = "https://uakino.best"
