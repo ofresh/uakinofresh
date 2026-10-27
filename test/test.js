@@ -384,6 +384,19 @@ async function pluginFlow(mode) {
     assert.deepStrictEqual(await page.$$eval('.uakino-online__tabs .uakino-online__filter--active', (els) => els.map((e) => e.textContent)), ['Сезон 2']);
     assert.deepStrictEqual(errors, []);
 
+    // «Торенти (UA)» в «Джерело» — стандартний екран торентів, лише з українською озвучкою.
+    await page.evaluate(() => { window.__enter('.uakino-online__filters .uakino-online__filter:nth-child(1)'); });
+    const srcItems = await page.evaluate(() => window.__select.items.map((i) => i.title));
+    assert.strictEqual(srcItems[srcItems.length - 1], 'Торенти (UA)');
+    await page.evaluate(() => window.__select.onSelect(window.__select.items[window.__select.items.length - 1]));
+    const pushed = await page.evaluate(() => ({ component: window.__pushed.component, ua: window.__pushed.uakino_ua, search: window.__pushed.search, one: window.__pushed.search_one }));
+    assert.deepStrictEqual(pushed, { component: 'torrents', ua: true, search: 'High Potential', one: 'Високий потенціал' });
+    const filtered = await page.evaluate(() => new Promise((resolve) => Lampa.Parser.get(window.__pushed, (d) => resolve(d.Results.map((r) => r.Title)))));
+    assert.deepStrictEqual(filtered, ['Matchbox (2026) WEB-DL 2160p HDR | UKR, ENG', 'Matchbox 2026 1080p [Дубляж Укр]', 'Матчбокс (2026) WEB-DLRip']);
+    // Звичайний пошук торентів (не з UAKino) — без фільтра.
+    const all = await page.evaluate(() => new Promise((resolve) => Lampa.Parser.get({ search: 'x' }, (d) => resolve(d.Results.length))));
+    assert.strictEqual(all, 5);
+
     // Settings зареєстровано
     const settings = await page.evaluate(() => window.__settings);
     assert.deepStrictEqual(settings, ['uakino',

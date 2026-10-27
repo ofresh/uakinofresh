@@ -41,6 +41,8 @@
     Component: { add: function (name, fn) { components[name] = fn; } },
     Activity: {
       push: function (obj) {
+        window.__pushed = obj;
+        if (!components[obj.component]) return;
         var comp = new components[obj.component](obj);
         var activity = { loader: function (v) { window.__loader = v; }, toggle: function () { comp.start(); } };
         comp.activity = activity;
@@ -67,6 +69,19 @@
       playlist: function (l) { window.__playlist = l; }
     },
     Timeline: { view: function (hash) { return { hash: hash }; }, render: function () { return new Q([document.createElement('i')]); } },
+    // Імітація парсера торентів Lampa (Jackett тощо).
+    Parser: {
+      get: function (params, ok) {
+        window.__parserParams = params;
+        ok({ Results: [
+          { Title: 'Matchbox (2026) WEB-DL 2160p HDR | UKR, ENG', Tracker: 'Rutor' },
+          { Title: 'Matchbox 2026 1080p [Дубляж Укр]', Tracker: 'Other' },
+          { Title: 'Матчбокс (2026) WEB-DLRip', Tracker: 'Toloka.to' },
+          { Title: 'Matchbox 2026 2160p ENG', Tracker: 'Other' },
+          { Title: 'Matchbox 2026 [Ultra HD] RUS', Tracker: 'Other' }
+        ] });
+      }
+    },
     Torrent: { start: function (element, movie) { window.__started = { element: element, movie: movie }; } },
     Utils: { hash: function (s) { return 'h:' + s; }, strToTime: function (s) { return Date.parse(s); } },
     SettingsApi: {

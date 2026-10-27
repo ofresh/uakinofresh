@@ -1765,6 +1765,11 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
       }
       function message(text) {
         body.empty();
+        var row = $('<div class="uakino-online__filters"></div>');
+        row.append(button(TORRENTS_LABEL, '', function () {
+          openTorrents(movie);
+        }));
+        body.append(row);
         body.append($('<div class="uakino-online__empty"></div>').text(text));
         self.activity.loader(false);
         self.activity.toggle();
@@ -2054,7 +2059,8 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
         var filters = $('<div class="uakino-online__filters"></div>');
         var sourceBtn, voiceBtn, tabBtn;
         filters.append(sourceBtn = button('Джерело:', sourceLabel(sources[cur.source]), function () {
-          select('Джерело', sources.map(sourceLabel), cur.source, function (i) {
+          select('Джерело', sources.map(sourceLabel).concat([TORRENTS_LABEL]), cur.source, function (i) {
+            if (i === sources.length) return openTorrents(movie);
             cur.source = i;
             cur.tab = 0;
             cur.voice = 0;
@@ -2065,7 +2071,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
             loadCurrent();
           }, sources.map(function (s) {
             return s.pages[0].title;
-          }));
+          }).concat(['Ваш парсер і TorrServer, лише з українською доріжкою']));
         }));
         if (voices.length > 1) {
           filters.append(voiceBtn = button('Озвучка:', voices[cur.voice], function () {
@@ -2227,6 +2233,41 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
         scroll.destroy();
         html.remove();
       };
+    }
+    var TORRENTS_LABEL = 'Торенти (UA)';
+    var UA_LATIN = /(^|[^a-z0-9])(ukr|ua|ukrainian)([^a-z0-9]|$)/i;
+    var UA_CYRILLIC = /укр|україн/i;
+    var UA_TRACKERS = /toloka|hurtom/i;
+    function isUkrainian(r) {
+      var text = String(r && r.Title || '');
+      return UA_LATIN.test(text) || UA_CYRILLIC.test(text) || UA_TRACKERS.test(String(r && r.Tracker || ''));
+    }
+    function patchParser() {
+      if (!Lampa.Parser || Lampa.Parser.uakino_ua_patched) return;
+      var original = Lampa.Parser.get;
+      Lampa.Parser.get = function (params, ok, fail) {
+        if (!params || !params.uakino_ua) return original.apply(this, arguments);
+        return original.call(this, params, function (data) {
+          if (data && data.Results) data.Results = data.Results.filter(isUkrainian);
+          ok(data);
+        }, fail);
+      };
+      Lampa.Parser.uakino_ua_patched = true;
+    }
+    function openTorrents(movie) {
+      patchParser();
+      var info = movieInfo(movie);
+      Lampa.Activity.push({
+        url: '',
+        title: TORRENTS_LABEL,
+        component: 'torrents',
+        search: info.original || info.title,
+        search_one: info.title,
+        search_two: info.original,
+        movie: movie,
+        page: 1,
+        uakino_ua: true
+      });
     }
     function openOnline(movie) {
       Lampa.Activity.push({
