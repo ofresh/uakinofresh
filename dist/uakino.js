@@ -1828,7 +1828,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
     var preferred = null;
     var BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
     function proxyRequest(net, url, o, ok, fail) {
-      var target = BUILT_IN_SERVER + '/proxy?url=' + encodeURIComponent(url) + (o.referer ? '&referer=' + encodeURIComponent(o.referer) : '') + (o.xhr ? '&xhr=1' : '');
+      var target = BUILT_IN_SERVER + '/proxy?url=' + encodeURIComponent(url) + (o.referer ? '&referer=' + encodeURIComponent(o.referer) : '') + (o.xhr ? '&xhr=1' : '') + (o.cookie ? '&cookie=' + encodeURIComponent(o.cookie) : '');
       net.silent(target, ok, fail, o.body || false, {
         dataType: 'text'
       });
@@ -1856,6 +1856,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
             Referer: o.referer || url.replace(/^(https?:\/\/[^/]+).*$/, '$1/')
           } : {};
           if (o.xhr) headers['X-Requested-With'] = 'XMLHttpRequest';
+          if (o.cookie && method === 'native') headers.Cookie = o.cookie;
           if (o.body) headers['Content-Type'] = 'application/x-www-form-urlencoded; charset=UTF-8';
           var ok = function ok(text) {
             preferred = method;
@@ -1894,12 +1895,24 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
     function clientFor(id) {
       var source = sourceById(id);
       var host = hostFor(source);
-      if (!clients[id] || clients[id].host !== host) clients[id] = UAKinoLib.createClient({
-        source: source,
-        host: host,
-        fetchText: deviceFetch
-      });
+      if (!clients[id] || clients[id].host !== host) {
+        clients[id] = UAKinoLib.createClient({
+          source: source,
+          host: host,
+          fetchText: function fetchText(url, o) {
+            var cookie = sameSite(url, host) ? cookieFor(source.id) : '';
+            return deviceFetch(url, cookie ? Object.assign({}, o, {
+              cookie: cookie
+            }) : o);
+          }
+        });
+      }
       return clients[id];
+    }
+    function sameSite(url, host) {
+      var a = String(url).replace(/^https?:\/\/(www\.)?([^/:]+).*$/, '$2');
+      var b = String(host).replace(/^https?:\/\/(www\.)?([^/:]+).*$/, '$2');
+      return a === b;
     }
     function enabledSources() {
       return SOURCES.filter(function (s) {
@@ -1913,12 +1926,26 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
       });
     }
     var ACCOUNTS = [{
+      id: 'uaflix',
+      name: 'UAFlix',
+      descr: 'Потрібно, якщо серії UAFlix не відкриваються («лише трейлер») — напр., на LG через Media Station X'
+    }, {
       id: 'toloka',
       name: 'Толока',
       descr: 'Роздачі Толоки в «Торенти (UA)»'
     }];
     function cookieFor(id) {
       return String(Lampa.Storage.get('uakino_cookie_' + id, '') || '');
+    }
+    function withLoginHint(err, sourceId) {
+      err = String(err || '');
+      if (sourceId !== 'uaflix' || !/лише трейлер/.test(err)) return err;
+      if (!hasCredentials('uaflix')) return err + '. Увійдіть в акаунт UAFlix: Налаштування → UAKino';
+      if (cookieFor('uaflix')) {
+        Lampa.Storage.set('uakino_cookie_uaflix', '');
+        return err + '. Вхід застарів — відкрийте ще раз, плагін увійде заново';
+      }
+      return err;
     }
     function hasCredentials(id) {
       return !!(Lampa.Storage.get('uakino_login_' + id, '') && Lampa.Storage.get('uakino_pass_' + id, ''));
@@ -2366,7 +2393,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
           build();
         }), alive(function (err) {
           data = null;
-          pageError = err;
+          pageError = withLoginHint(err, source.id);
           build();
         }));
       }
@@ -2745,7 +2772,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
           Lampa.Player.playlist(playlist);
         }, function (err) {
           stopLoading();
-          Lampa.Noty.show('UAKino: ' + err);
+          Lampa.Noty.show('UAKino: ' + withLoginHint(err, sourceId));
         });
       }
       this.start = function () {

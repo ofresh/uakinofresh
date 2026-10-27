@@ -419,6 +419,7 @@ async function pluginFlow(mode) {
     const settings = await page.evaluate(() => window.__settings);
     assert.deepStrictEqual(settings, ['uakino',
       'uakino_src_uaserials', 'uakino_src_uaflix', 'uakino_src_eneyida', 'uakino_src_uaserial', 'uakino_src_anitube', 'uakino_src_animeua',
+      'uakino_title_uaflix', 'uakino_login_uaflix', 'uakino_pass_uaflix', 'uakino_enter_uaflix',
       'uakino_title_toloka', 'uakino_login_toloka', 'uakino_pass_toloka', 'uakino_enter_toloka',
       'uakino_host_uaserials', 'uakino_host_uaflix', 'uakino_host_eneyida', 'uakino_host_uaserial', 'uakino_host_anitube', 'uakino_host_animeua']);
 
@@ -644,7 +645,9 @@ test('акаунт Толоки: вхід (cookie), розбір пошуку, �
     text: async () => body,
   });
   const calls = [];
-  assert.strictEqual((await accounts.login('uaflix', 'me', 'pw')).ok, false, 'UAFlix вхід не потрібен');
+  // UAFlix (DLE): cookie dle_user_id/dle_password після входу.
+  const ufx = await accounts.login('uaflix', 'me', 'pw', { fetchImpl: async (url, o) => fakeRes(['dle_user_id=77; path=/', 'dle_password=abcdef; path=/']) });
+  assert.deepStrictEqual(ufx, { ok: true, cookie: 'dle_user_id=77; dle_password=abcdef' });
   const data = encodeURIComponent('a:2:{s:11:"autologinid";s:3:"key";s:6:"userid";s:4:"4242";}');
   const tl = await accounts.login('toloka', 'me', 'pw', { fetchImpl: async (url, o) => { calls.push([url, o.body]); return fakeRes(['toloka_data=' + data + '; expires=x', 'toloka_sid=abc']); } });
   assert.ok(tl.ok, JSON.stringify(tl));
@@ -693,6 +696,9 @@ test('проксі для LG/браузера: лише сайти-джерел�
   await proxy(new URLSearchParams({ url: 'https://uafix.net/index.php?do=search' }), 'story=x', fake);
   assert.deepStrictEqual([calls[1][1], calls[1][3]], ['POST', 'story=x']);
   assert.strictEqual((await proxy(new URLSearchParams({ url: 'http://127.0.0.1:8080/' }), '', fake)).status, 403);
+  // Cookie входу UAFlix передається сайту (гостям з не-українських IP UAFlix показує лише трейлер).
+  await proxy(new URLSearchParams({ url: 'https://uafix.net/serials/x/season-01-episode-01/', cookie: 'dle_user_id=7; dle_password=abc' }), '', fake);
+  assert.strictEqual(calls[2][2].Cookie, 'dle_user_id=7; dle_password=abc');
 });
 
 // ---------------- online ----------------
