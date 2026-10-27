@@ -696,7 +696,11 @@ return __load("lib/client.js");
   function deviceError(net, a, c, url) {
     var status = a && a.status;
     if (status === 403 || status === 503) return 'uakino заблокував запит (' + status + '). Спробуйте пізніше або інше дзеркало в налаштуваннях';
-    if (!status) return 'немає доступу до uakino з цього пристрою. У браузерній версії Lampa увімкніть режим «Через парсер»';
+    if (!status) {
+      var detail = a && (a.responseText || a.message || a.error);
+      if (detail && typeof detail === 'string') return 'немає відповіді від uakino: ' + detail.slice(0, 150);
+      return 'немає доступу до uakino з цього пристрою. У браузерній версії Lampa увімкніть режим «Через парсер»';
+    }
     return (net.errorDecode ? net.errorDecode(a, c) : 'помилка') + ' — ' + url;
   }
 
