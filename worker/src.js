@@ -9,6 +9,7 @@ const { toJackett } = require('../lib/jackett');
 const { createOnline } = require('../lib/online');
 const { searchDle } = require('../lib/search');
 const accounts = require('../lib/accounts');
+const { proxy } = require('../lib/proxy');
 
 const DEFAULT_HOST = 'https://uakino.best';
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
@@ -137,7 +138,7 @@ async function handle(req, env, ctx) {
   const base = url.origin;
 
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
-  if (req.method !== 'GET' && !(req.method === 'POST' && url.pathname === '/login')) return json({ error: 'method not allowed' }, 405);
+  if (req.method !== 'GET' && !(req.method === 'POST' && (url.pathname === '/login' || url.pathname === '/proxy'))) return json({ error: 'method not allowed' }, 405);
 
   try {
     if (url.pathname === '/' || url.pathname === '/health') {
@@ -147,6 +148,12 @@ async function handle(req, env, ctx) {
     if (url.pathname === '/uakino.js' || url.pathname === '/plugin.js') {
       const code = __PLUGIN_SOURCE__.replace("'__UAKINO_SERVER__'", JSON.stringify(base));
       return new Response(code, { headers: { 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'max-age=300', ...CORS } });
+    }
+
+    // Проксі для LG/браузера, де діє CORS (лише сайти-джерела й плеєри).
+    if (url.pathname === '/proxy') {
+      const r = await proxy(q, req.method === 'POST' ? await req.text() : '', fetch);
+      return new Response(r.body, { status: r.status, headers: { 'Content-Type': r.type, 'Cache-Control': 'no-store', ...CORS } });
     }
 
     // Вхід (UAFlix, Толока) і пошук/завантаження на Толоці з cookie користувача.

@@ -80,14 +80,23 @@
   var preferred = null;
   var BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
 
+  // Через Worker — для LG webOS / Media Station X і браузера, де діє CORS і немає «нативних» запитів.
+  function proxyRequest(net, url, o, ok, fail) {
+    var target = BUILT_IN_SERVER + '/proxy?url=' + encodeURIComponent(url) +
+      (o.referer ? '&referer=' + encodeURIComponent(o.referer) : '') + (o.xhr ? '&xhr=1' : '');
+    net.silent(target, ok, fail, o.body || false, { dataType: 'text' });
+  }
+
   function deviceFetch(url, o) {
     o = o || {};
     var methods = [];
     if (typeof new Lampa.Reguest()['native'] === 'function') methods.push('native');
     methods.push('silent');
+    if (BUILT_IN_SERVER) methods.push('proxy');
     if (preferred && methods.indexOf(preferred) > 0) methods = [preferred].concat(methods.filter(function (m) { return m !== preferred; }));
 
     var errors = [];
+    var lastStatus = 0;
 
     return new Promise(function (resolve, reject) {
       function attempt(i) {
@@ -104,16 +113,22 @@
         } : {};
         if (o.xhr) headers['X-Requested-With'] = 'XMLHttpRequest';
         if (o.body) headers['Content-Type'] = 'application/x-www-form-urlencoded; charset=UTF-8';
-        net[method](url, function (text) {
+        var ok = function (text) {
           preferred = method;
           resolve(typeof text === 'string' ? text : JSON.stringify(text));
-        }, function (a) {
-          errors.push((method === 'native' ? 'застосунок' : 'WebView') + ': ' + describe(a));
-          if (i + 1 < methods.length) return attempt(i + 1);
+        };
+        var fail = function (a) {
+          errors.push((method === 'native' ? 'застосунок' : method === 'proxy' ? 'Worker' : 'WebView') + ': ' + describe(a));
+          lastStatus = (a && a.status) || lastStatus;
+          var next = methods[i + 1];
+          // Через Worker — лише коли сайт узагалі недоступний з пристрою (CORS), а не коли він відповів помилкою.
+          if (next && !(next === 'proxy' && lastStatus)) return attempt(i + 1);
           var err = new Error(errors.join(', '));
           err.status = a && a.status;
           reject(err);
-        }, o.body || false, { dataType: 'text', headers: headers });
+        };
+        if (method === 'proxy') proxyRequest(net, url, o, ok, fail);
+        else net[method](url, ok, fail, o.body || false, { dataType: 'text', headers: headers });
       }
       attempt(0);
     });

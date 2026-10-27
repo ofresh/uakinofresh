@@ -14,6 +14,7 @@ const { UAKino } = require('./lib/uakino');
 const { toJackett } = require('./lib/jackett');
 const { createOnline } = require('./lib/online');
 const accounts = require('./lib/accounts');
+const { proxy } = require('./lib/proxy');
 
 const env = process.env;
 const config = {
@@ -69,7 +70,7 @@ function createServer(client) {
   });
   return http.createServer(async (req, res) => {
     if (req.method === 'OPTIONS') return send(res, 204, '');
-    if (req.method !== 'GET' && !(req.method === 'POST' && req.url.split('?')[0] === '/login')) return send(res, 405, { error: 'method not allowed' });
+    if (req.method !== 'GET' && !(req.method === 'POST' && ['/login', '/proxy'].indexOf(req.url.split('?')[0]) >= 0)) return send(res, 405, { error: 'method not allowed' });
 
     const url = new URL(req.url, 'http://localhost');
     const q = url.searchParams;
@@ -93,6 +94,14 @@ function createServer(client) {
       }
 
       // Онлайн-перегляд: /online/search, /online/page, /online/stream
+      // Проксі для LG/браузера, де діє CORS (лише сайти-джерела й плеєри).
+      if (url.pathname === '/proxy') {
+        let body = '';
+        if (req.method === 'POST') body = await new Promise((resolve) => { let b = ''; req.on('data', (c) => { b += c; }); req.on('end', () => resolve(b)); });
+        const r = await proxy(q, body, fetch);
+        return send(res, r.status, r.body, r.type);
+      }
+
       // Вхід (UAFlix, Толока) і пошук/завантаження на Толоці з cookie користувача.
       if (url.pathname === '/login' || url.pathname.indexOf('/toloka/') === 0) {
         let params = q;

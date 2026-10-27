@@ -680,6 +680,21 @@ test('акаунт Толоки: вхід (cookie), розбір пошуку, �
   await assert.rejects(accounts.tolokaSearch('x', '', { fetchImpl: async () => fakeRes([], 200, '', '<a href="/login.php" rel="nofollow">Вхід</a>') }), /Толока: вхід не виконано/);
 });
 
+test('проксі для LG/браузера: лише сайти-джерела й плеєри, POST-форма, заголовки', async () => {
+  const { proxy, allowed } = require('../lib/proxy');
+  assert.ok(allowed('uaserials.my') && allowed('www.uafix.net') && allowed('anitube.in.ua') && allowed('ashdi.vip') && allowed('cdn.ashdi.vip'));
+  assert.ok(!allowed('evil.example') && !allowed('ashdi.vip.evil.example') && !allowed('169.254.169.254'));
+  const calls = [];
+  const fake = async (url, o) => { calls.push([url, o.method, o.headers, o.body]); return { status: 200, headers: { get: () => 'text/html' }, text: async () => 'OK' }; };
+  const r = await proxy(new URLSearchParams({ url: 'https://anitube.in.ua/engine/ajax/playlists.php?news_id=1', referer: 'https://anitube.in.ua/1-a.html', xhr: '1' }), '', fake);
+  assert.deepStrictEqual([r.status, r.body], [200, 'OK']);
+  assert.strictEqual(calls[0][2]['X-Requested-With'], 'XMLHttpRequest');
+  assert.strictEqual(calls[0][2].Referer, 'https://anitube.in.ua/1-a.html');
+  await proxy(new URLSearchParams({ url: 'https://uafix.net/index.php?do=search' }), 'story=x', fake);
+  assert.deepStrictEqual([calls[1][1], calls[1][3]], ['POST', 'story=x']);
+  assert.strictEqual((await proxy(new URLSearchParams({ url: 'http://127.0.0.1:8080/' }), '', fake)).status, 403);
+});
+
 // ---------------- online ----------------
 
 test('online: розбір плейлиста, Playerjs, якості, субтитри', () => {
