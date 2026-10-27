@@ -2090,6 +2090,10 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
       var pageError = '';
       var keepFocus = '';
       var voiceRestored = false;
+      var upTargets = {
+        tab: null,
+        filter: null
+      };
       function alive(fn) {
         return function (v) {
           if (!destroyed) fn(v);
@@ -2537,6 +2541,8 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
         body.append(list);
         decorateEpisodes(list);
         if (lastWatched && !keepFocus) last = lastWatched;
+        upTargets.tab = tabBtn ? tabBtn[0] : null;
+        upTargets.filter = sourceBtn ? sourceBtn[0] : null;
         var keep = keepFocus === 'tab' ? tabBtn : keepFocus === 'voice' ? voiceBtn : keepFocus === 'source' ? sourceBtn : null;
         if (keep) last = keep[0];
         keepFocus = '';
@@ -2630,7 +2636,14 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
             Lampa.Controller.collectionFocus(last || false, scroll.render());
           },
           up: function up() {
-            if (Navigator.canmove('up')) Navigator.move('up');else Lampa.Controller.toggle('head');
+            if (Navigator.canmove('up')) return Navigator.move('up');
+            var inList = last && $(last).closest('.uakino-online__list').length;
+            var inTabs = last && $(last).closest('.uakino-online__tabs').length;
+            var target = inList ? upTargets.tab || upTargets.filter : inTabs ? upTargets.filter : null;
+            if (target) {
+              last = target;
+              Lampa.Controller.collectionFocus(target, scroll.render());
+            } else Lampa.Controller.toggle('head');
           },
           down: function down() {
             if (Navigator.canmove('down')) Navigator.move('down');

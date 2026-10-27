@@ -71,11 +71,11 @@ const routes = [
   console.log('UASERIALS', JSON.stringify(await state()));
   await p.screenshot({ path: require('path').join(process.env.E2E_SHOTS || require('os').tmpdir(), 'uakino-e2e-' + (++global.shot || (global.shot = 1)) + '.png') });
   // гортаємо вниз до кінця списку
-  await key('ArrowDown', 16);
+  await key('ArrowDown', 6);
   console.log('SCROLLED', JSON.stringify(await state()));
   await p.screenshot({ path: require('path').join(process.env.E2E_SHOTS || require('os').tmpdir(), 'uakino-e2e-' + (++global.shot || (global.shot = 1)) + '.png') });
   // вгору до вкладок і вправо на Сезон 2
-  await key('ArrowUp', 15);
+  await key('ArrowUp', 5);
   console.log('TOP', JSON.stringify(await state()));
   await key('ArrowDown'); await key('ArrowRight'); await key('Enter');
   await p.waitForTimeout(800);

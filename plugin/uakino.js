@@ -339,6 +339,7 @@
     var pageError = '';
     var keepFocus = ''; // що виділити після перебудови: 'source' | 'voice' | 'tab'
     var voiceRestored = false; // озвучку з минулого перегляду відновлюємо один раз
+    var upTargets = { tab: null, filter: null }; // куди йти «вгору», якщо строго вгорі нічого немає
 
     function alive(fn) {
       return function (v) {
@@ -804,6 +805,9 @@
       // Відкриваємо на останній переглянутій серії.
       if (lastWatched && !keepFocus) last = lastWatched;
 
+      upTargets.tab = tabBtn ? tabBtn[0] : null;
+      upTargets.filter = sourceBtn ? sourceBtn[0] : null;
+
       // Курсор лишається на кнопці, яку щойно натиснули.
       var keep = keepFocus === 'tab' ? tabBtn : keepFocus === 'voice' ? voiceBtn : keepFocus === 'source' ? sourceBtn : null;
       if (keep) last = keep[0];
@@ -895,8 +899,15 @@
           Lampa.Controller.collectionFocus(last || false, scroll.render());
         },
         up: function () {
-          if (Navigator.canmove('up')) Navigator.move('up');
-          else Lampa.Controller.toggle('head');
+          if (Navigator.canmove('up')) return Navigator.move('up');
+          // Сітка карток ширша за ряд вкладок: з першого ряду — на активний сезон, з сезонів — на «Джерело».
+          var inList = last && $(last).closest('.uakino-online__list').length;
+          var inTabs = last && $(last).closest('.uakino-online__tabs').length;
+          var target = inList ? upTargets.tab || upTargets.filter : inTabs ? upTargets.filter : null;
+          if (target) {
+            last = target;
+            Lampa.Controller.collectionFocus(target, scroll.render());
+          } else Lampa.Controller.toggle('head');
         },
         down: function () {
           if (Navigator.canmove('down')) Navigator.move('down');
