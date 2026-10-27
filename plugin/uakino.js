@@ -197,7 +197,7 @@
       var list = enabledSources();
       if (!list.length) return fail('усі сайти вимкнено в налаштуваннях');
       Promise.all(list.map(function (source) {
-        return clientFor(source.id).online.findPages({ title: m.title, original: m.original }).then(function (pages) {
+        return clientFor(source.id).online.findPages({ title: m.title, original: m.original, year: m.year, serial: m.serial }).then(function (pages) {
           return { source: source, pages: pages };
         }, function (e) {
           return { source: source, pages: [], error: (e && e.message) || String(e) };
@@ -212,6 +212,9 @@
           });
           problems.push(r.source.name + ': ' + (r.error || (r.pages.length ? r.pages.length + ' знайдено' : 'нічого не знайдено')));
         });
+        // Якщо десь є точний збіг назви — неточні з інших сайтів не показуємо.
+        var exact = pages.some(function (p) { return p.score >= 100; });
+        if (exact) pages = pages.filter(function (p) { return p.score >= 100; });
         if (pages.length) ok(pages);
         else fail('нічого не знайдено. ' + problems.join(' | '));
       });
@@ -538,11 +541,11 @@
       return focusable(btn);
     }
 
-    function select(title, list, current, onSelect) {
+    function select(title, list, current, onSelect, subtitles) {
       Lampa.Select.show({
         title: title,
         items: list.map(function (name, i) {
-          return { title: name, selected: i === current, index: i };
+          return { title: name, subtitle: subtitles ? subtitles[i] : '', selected: i === current, index: i };
         }),
         onSelect: function (a) {
           Lampa.Controller.toggle('content');
@@ -580,6 +583,25 @@
       var voices = currentVoices();
       if (cur.voice >= voices.length) cur.voice = 0;
 
+      // Що знайдено: постер, назва, оригінальна назва й рік — видно, що це саме той фільм.
+      var src = sources[cur.source];
+      var shown = src.pages[currentTab().page] || src.pages[0];
+      var head = $('<div class="uakino-online__head"><div class="uakino-online__head-text"><div class="uakino-online__head-title"></div><div class="uakino-online__head-sub"></div></div></div>');
+      var poster = (data && data.poster) || shown.poster || src.pages[0].poster;
+      if (poster) head.prepend($('<img class="uakino-online__poster">').attr('src', poster));
+      // Назва з картки пошуку: «Укр / Альтернативна / Original» → заголовок + решта підписом.
+      var names = String(shown.title || (data && data.title) || '').split(/\s+\/\s+/);
+      [shown.original, data && data.original].forEach(function (o) {
+        if (o && names.indexOf(o) < 0) names.push(o);
+      });
+      head.find('.uakino-online__head-title').text(names[0] || '');
+      var sub = names.slice(1, 3);
+      var year = (data && data.year) || shown.year;
+      if (year) sub.push(year);
+      sub.push(src.name);
+      head.find('.uakino-online__head-sub').text(sub.join(' · '));
+      body.append(head);
+
       // Ряд 1: джерело й озвучка — доступні завжди, навіть якщо на сайті фільму немає.
       var filters = $('<div class="uakino-online__filters"></div>');
       var sourceBtn, voiceBtn, tabBtn;
@@ -591,7 +613,7 @@
           keepFocus = 'source';
           saveChoice({ manual: true });
           loadCurrent();
-        });
+        }, sources.map(function (s) { return s.pages[0].title; }));
       }));
       if (voices.length > 1) {
         filters.append(voiceBtn = button('Озвучка:', voices[cur.voice], function () {
@@ -781,6 +803,10 @@
 
   var CSS = '<style>' +
     '.uakino-online__body{padding:0 1.5em 1.5em}' +
+    '.uakino-online__head{display:flex;align-items:center;margin-bottom:1.2em}' +
+    '.uakino-online__poster{width:5em;height:7.5em;object-fit:cover;border-radius:.6em;margin-right:1.2em;background:rgba(255,255,255,.05);flex-shrink:0}' +
+    '.uakino-online__head-title{font-size:1.6em;font-weight:600}' +
+    '.uakino-online__head-sub{margin-top:.4em;opacity:.6}' +
     '.uakino-online__filters,.uakino-online__tabs{display:flex;flex-wrap:wrap;margin-bottom:.5em}' +
     '.uakino-online__filter{padding:.6em 1.2em;margin:0 1em 1em 0;border-radius:1em;background:rgba(255,255,255,.1)}' +
     '.uakino-online__filter--active{background:rgba(255,255,255,.3)}' +

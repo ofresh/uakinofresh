@@ -6,6 +6,8 @@
   Q.prototype.after = function (q) { var n = this.nodes[0]; q.nodes.forEach(function (c) { n.parentNode.insertBefore(c, n.nextSibling); }); return this; };
   Q.prototype.before = function (q) { var n = this.nodes[0]; q.nodes.forEach(function (c) { n.parentNode.insertBefore(c, n); }); return this; };
   Q.prototype.text = function (t) { this.nodes.forEach(function (n) { n.textContent = t; }); return this; };
+  Q.prototype.attr = function (k, v) { this.nodes.forEach(function (n) { n.setAttribute(k, v); }); return this; };
+  Q.prototype.prepend = function (q) { var n = this.nodes[0]; q.nodes.slice().reverse().forEach(function (c) { n.insertBefore(c, n.firstChild); }); return this; };
   Q.prototype.empty = function () { this.nodes.forEach(function (n) { n.innerHTML = ''; }); return this; };
   Q.prototype.addClass = function (c) { this.nodes.forEach(function (n) { n.classList.add(c); }); return this; };
   Q.prototype.remove = function () { this.nodes.forEach(function (n) { n.remove(); }); return this; };

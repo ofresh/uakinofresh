@@ -483,6 +483,51 @@ test('інші сайти: пошук, назви з карток, плеєри 
   });
 });
 
+test('зіставлення: точна назва, без спін-офів, рік фільму, без повторів, сезони з адреси', async () => {
+  const { createOnline } = require('../lib/online');
+  const card = (url, title, extra = '') => '<a class="sres-wrap" href="' + url + '"><h2>' + title + '</h2></a>' + extra;
+  const results = {
+    'Ходячі мерці': [
+      card('https://uafix.net/serials/daryl/', 'Ходячі мерці: Деріл Діксон / І мертві підуть / The Walking Dead: Daryl Dixon'),
+      card('https://uafix.net/serials/fear/', 'Бійтесь ходячих мерців / Fear the Walking Dead'),
+      card('https://uafix.net/serials/twd/', 'Ходячі мерці / І мертві підуть / The Walking Dead'),
+      card('https://uafix.net/serials/twd-copy/', 'Ходячі мерці / The Walking Dead'),
+    ].join(''),
+    'Аватар': [
+      card('https://uafix.net/films/avatar-3/', 'Аватар 3: Вогонь і Попіл / Avatar: Fire and Ash'),
+      card('https://uafix.net/films/avatar-1/', 'Аватар 1 / Avatar'),
+      card('https://uafix.net/films/avatar-2009.html', 'Аватар (2022)'),
+    ].join(''),
+    'Високий потенціал': [
+      '<div class="short-item"><a class="short-img" href="https://uaserials.my/33-vp-sezon-2.html"><img alt="І мертві підуть (Сезон 2)"></a><div class="th-title-oname">High Potential</div></div>',
+      '<div class="short-item"><a class="short-img" href="https://uaserials.my/32-vp-sezon-1.html"><img alt="І мертві підуть"></a><div class="th-title-oname">High Potential</div></div>',
+    ].join(''),
+  };
+  const sources = require('../lib/sources');
+  const mk = (source) => createOnline({
+    host: source.host,
+    name: source.name,
+    fetchText: async () => '',
+    searchSite: async (q) => require('../lib/parse').parseList(results[q] || '', source.host, source.linkRe),
+  });
+  const fix = mk(sources.getSource('uaflix'));
+
+  const twd = await fix.findPages({ title: 'Ходячі мерці', original: 'The Walking Dead', serial: true });
+  assert.deepStrictEqual(twd.map((p) => p.url), ['https://uafix.net/serials/twd/'], 'лише сам серіал, спін-офи і повтор відкинуто');
+  assert.strictEqual(twd[0].score, 100);
+
+  // «… онлайн в HD» з атрибута title (Eneyida) обрізається.
+  assert.deepStrictEqual(require('../lib/parse').parseList('<a class="short_img" href="https://eneyida.tv/5-m.html" title="Matchbox: фільм онлайн в HD"></a>', 'https://eneyida.tv').map((i) => i.title), ['Matchbox: фільм']);
+
+  const avatar = await fix.findPages({ title: 'Аватар', original: 'Avatar', year: '2009' });
+  assert.deepStrictEqual(avatar.map((p) => p.url), ['https://uafix.net/films/avatar-1/'], 'Аватар 3 не збігається, «Аватар (2022)» — інший рік');
+
+  // Оригінальна назва поруч з карткою (UASerials) + номер сезону з адреси; сезони по порядку.
+  const ser = mk(sources.getSource('uaserials'));
+  const hp = await ser.findPages({ title: 'Високий потенціал', original: 'High Potential', serial: true });
+  assert.deepStrictEqual(hp.map((p) => [p.season, p.original]), [[1, 'High Potential'], [2, 'High Potential']]);
+});
+
 // ---------------- online ----------------
 
 test('online: розбір плейлиста, Playerjs, якості, субтитри', () => {

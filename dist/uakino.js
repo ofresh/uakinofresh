@@ -343,7 +343,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
         }
         function cardTitle(tag, inner) {
           var clean = function clean(t) {
-            return decodeEntities(t || '').replace(/\s+(онлайн|дивитис[ья]|смотреть)\b.*$/i, '').replace(/\s+/g, ' ').trim();
+            return decodeEntities(t || '').replace(/\s+(онлайн|дивитис[ья]|смотреть)(\s.*)?$/i, '').replace(/\s+/g, ' ').trim();
           };
           var heading = inner.match(/<h[1-6]\b[^>]*>([\s\S]*?)<\/h[1-6]>/i);
           if (heading && stripTags(heading[1])) return clean(stripTags(heading[1]));
@@ -385,6 +385,11 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                 var src = attr(img[0], 'data-src') || attr(img[0], 'src');
                 if (src) item.poster = absoluteUrl(src, host);
               }
+            }
+            if (!item.original) {
+              var after = html.slice(re.lastIndex, re.lastIndex + 600).split(/<a\b/i)[0];
+              var orig = after.match(/class=["'][^"']*(oname|original|orig-title|origintitle)[^"']*["'][^>]*>([\s\S]*?)<\//i);
+              if (orig && stripTags(orig[2])) item.original = stripTags(orig[2]);
             }
             found.set(id, item);
           }
@@ -463,28 +468,52 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
         function normalizeTitle(s) {
           return String(s || '').toLowerCase().replace(/ё/g, 'е').replace(/[ʼ’'`]/g, '').replace(/[^0-9a-z\u00c0-\u024f\u0400-\u04ff]+/g, ' ').trim();
         }
+        function baseTitle(s) {
+          var n = normalizeTitle(s);
+          var cut = n.replace(/\s*((\d+\s*)+сезон|сезон\s*\d+|season\s*\d+|\d+\s*season).*$/, '').trim();
+          var noYear = cut.replace(/\b(19|20)\d{2}\b/g, ' ').replace(/\s+/g, ' ').trim();
+          return noYear || cut || n;
+        }
+        function altNames(item) {
+          var names = String(item.title || '').split(/\s+\/\s+/);
+          if (item.original) names.push(item.original);
+          return names.filter(Boolean);
+        }
         function scoreTitle(item, titles) {
-          var t = normalizeTitle(item.title + ' ' + (item.original || ''));
+          var qs = titles.map(baseTitle).filter(Boolean);
           var best = 0;
-          var _iterator3 = _createForOfIteratorHelper(titles),
+          var _iterator3 = _createForOfIteratorHelper(altNames(item)),
             _step3;
           try {
-            for (_iterator3.s(); !(_step3 = _iterator3.n()).done;) {
-              var raw = _step3.value;
-              var q = normalizeTitle(raw);
-              if (!q) continue;
-              var s = 0;
-              var base = normalizeTitle(item.title).replace(/\s*(сезон|season)\s*\d+.*$/, '').trim();
-              if (base === q) s = 100;else if (t.indexOf(q) >= 0) s = 60;else if (q.indexOf(base) >= 0 && base.length > 3) s = 40;else {
-                var words = q.split(' ').filter(function (w) {
-                  return w.length > 2;
-                });
-                var hit = words.filter(function (w) {
-                  return t.indexOf(w) >= 0;
-                }).length;
-                if (words.length) s = Math.round(hit / words.length * 30);
+            var _loop = function _loop() {
+              var name = _step3.value;
+              var b = baseTitle(name);
+              if (!b) return 1;
+              var _iterator4 = _createForOfIteratorHelper(qs),
+                _step4;
+              try {
+                for (_iterator4.s(); !(_step4 = _iterator4.n()).done;) {
+                  var q = _step4.value;
+                  var s = 0;
+                  if (b === q) s = 100;else if ((' ' + b + ' ').indexOf(' ' + q + ' ') >= 0) s = 50;else if ((' ' + q + ' ').indexOf(' ' + b + ' ') >= 0 && b.length > 3) s = 40;else {
+                    var words = q.split(' ').filter(function (w) {
+                      return w.length > 2;
+                    });
+                    var hit = words.filter(function (w) {
+                      return (' ' + b + ' ').indexOf(' ' + w + ' ') >= 0;
+                    }).length;
+                    if (words.length) s = Math.round(hit / words.length * 30);
+                  }
+                  best = Math.max(best, s);
+                }
+              } catch (err) {
+                _iterator4.e(err);
+              } finally {
+                _iterator4.f();
               }
-              best = Math.max(best, s);
+            };
+            for (_iterator3.s(); !(_step3 = _iterator3.n()).done;) {
+              if (_loop()) continue;
             }
           } catch (err) {
             _iterator3.e(err);
@@ -493,8 +522,15 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
           }
           return best;
         }
+        function yearOf(item) {
+          var m = String(item.title || '').match(/\((19|20)\d{2}\)/) || String(item.url || '').match(/[-_/]((19|20)\d{2})(?:[-_.][a-z]*)?\.html$/);
+          return m ? Number(m[0].replace(/\D/g, '').slice(0, 4)) : null;
+        }
         module.exports = {
           scoreTitle: scoreTitle,
+          baseTitle: baseTitle,
+          altNames: altNames,
+          yearOf: yearOf,
           decodeEntities: decodeEntities,
           stripTags: stripTags,
           absoluteUrl: absoluteUrl,
@@ -525,7 +561,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
           return host.replace(/\/+$/, '') + '/' + url.replace(/^\/+/, '');
         }
         function seasonOf(s) {
-          var m = String(s || '').match(/сезон\s*(\d+)|(\d+)\s*сезон|season\s*(\d+)/i);
+          var m = String(s || '').match(/(?:сезон|season|sezon)[\s_-]*(\d+)|(\d+)[\s_-]*(?:сезон|sezon)|season\s*(\d+)/i);
           return m ? Number(m[1] || m[2] || m[3]) : null;
         }
         function episodeOf(s) {
@@ -769,43 +805,46 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
           }
           function _findPages() {
             _findPages = _asyncToGenerator(_regenerator().m(function _callee5(_ref4) {
-              var _ref4$title, title, _ref4$original, original, _ref4$query, query, titles, found, lastError, _iterator4, _step4, q, _iterator5, _step5, item, list, best, _t7, _t8, _t9;
+              var _ref4$title, title, _ref4$original, original, _ref4$query, query, _ref4$year, year, _ref4$serial, serial, titles, found, lastError, _iterator5, _step5, q, _iterator6, _step6, item, list, best, seen, _t7, _t8, _t9;
               return _regenerator().w(function (_context5) {
                 while (1) switch (_context5.p = _context5.n) {
                   case 0:
-                    _ref4$title = _ref4.title, title = _ref4$title === void 0 ? '' : _ref4$title, _ref4$original = _ref4.original, original = _ref4$original === void 0 ? '' : _ref4$original, _ref4$query = _ref4.query, query = _ref4$query === void 0 ? '' : _ref4$query;
+                    _ref4$title = _ref4.title, title = _ref4$title === void 0 ? '' : _ref4$title, _ref4$original = _ref4.original, original = _ref4$original === void 0 ? '' : _ref4$original, _ref4$query = _ref4.query, query = _ref4$query === void 0 ? '' : _ref4$query, _ref4$year = _ref4.year, year = _ref4$year === void 0 ? null : _ref4$year, _ref4$serial = _ref4.serial, serial = _ref4$serial === void 0 ? false : _ref4$serial;
                     titles = [title, original, query].filter(Boolean).filter(function (v, i, a) {
                       return a.indexOf(v) === i;
                     }).slice(0, 3);
                     found = new Map();
                     lastError = null;
-                    _iterator4 = _createForOfIteratorHelper(titles);
+                    _iterator5 = _createForOfIteratorHelper(titles);
                     _context5.p = 1;
-                    _iterator4.s();
+                    _iterator5.s();
                   case 2:
-                    if ((_step4 = _iterator4.n()).done) {
+                    if ((_step5 = _iterator5.n()).done) {
                       _context5.n = 7;
                       break;
                     }
-                    q = _step4.value;
+                    q = _step5.value;
                     _context5.p = 3;
                     _t7 = _createForOfIteratorHelper;
                     _context5.n = 4;
                     return searchSite(q);
                   case 4:
-                    _iterator5 = _t7(_context5.v);
+                    _iterator6 = _t7(_context5.v);
                     try {
-                      for (_iterator5.s(); !(_step5 = _iterator5.n()).done;) {
-                        item = _step5.value;
-                        if (!found.has(item.id)) found.set(item.id, Object.assign({}, item, {
-                          score: parse.scoreTitle(item, titles),
-                          season: seasonOf(item.title)
-                        }));
+                      for (_iterator6.s(); !(_step6 = _iterator6.n()).done;) {
+                        item = _step6.value;
+                        if (!found.has(item.id)) {
+                          found.set(item.id, Object.assign({}, item, {
+                            score: parse.scoreTitle(item, titles),
+                            season: seasonOf(item.title) || seasonOf(item.url),
+                            year: parse.yearOf(item)
+                          }));
+                        }
                       }
                     } catch (err) {
-                      _iterator5.e(err);
+                      _iterator6.e(err);
                     } finally {
-                      _iterator5.f();
+                      _iterator6.f();
                     }
                     _context5.n = 6;
                     break;
@@ -822,10 +861,10 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                   case 8:
                     _context5.p = 8;
                     _t9 = _context5.v;
-                    _iterator4.e(_t9);
+                    _iterator5.e(_t9);
                   case 9:
                     _context5.p = 9;
-                    _iterator4.f();
+                    _iterator5.f();
                     return _context5.f(9);
                   case 10:
                     if (!(!found.size && lastError)) {
@@ -835,34 +874,45 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                     throw lastError;
                   case 11:
                     list = Array.from(found.values()).filter(function (p) {
-                      return p.score >= 40;
+                      return p.score >= 50;
+                    });
+                    if (year && !serial) list = list.filter(function (p) {
+                      return !p.year || Math.abs(p.year - Number(year)) <= 1;
                     });
                     best = list.reduce(function (m, p) {
                       return Math.max(m, p.score);
                     }, 0);
                     list = list.filter(function (p) {
-                      return p.score >= best - 20;
+                      return p.score === best;
+                    });
+                    seen = {};
+                    list = list.filter(function (p) {
+                      var key = parse.baseTitle(parse.altNames(p)[0]) + '|' + (p.season || 0);
+                      if (seen[key]) return false;
+                      seen[key] = true;
+                      return true;
                     });
                     list.sort(function (a, b) {
-                      return b.score - a.score || (a.season || 0) - (b.season || 0);
-                    });
-                    if (list.some(function (p) {
-                      return p.season;
-                    })) list.sort(function (a, b) {
                       return (a.season || 0) - (b.season || 0);
                     });
                     return _context5.a(2, list.map(function (_ref5) {
                       var id = _ref5.id,
                         url = _ref5.url,
                         t = _ref5.title,
+                        o = _ref5.original,
                         poster = _ref5.poster,
-                        season = _ref5.season;
+                        season = _ref5.season,
+                        score = _ref5.score,
+                        y = _ref5.year;
                       return {
                         id: id,
                         url: url,
                         title: t,
+                        original: o || '',
                         poster: poster,
-                        season: season
+                        season: season,
+                        score: score,
+                        year: y
                       };
                     }));
                 }
@@ -947,7 +997,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                   case 0:
                     url = checkUrl(url, false);
                     return _context0.a(2, cache.wrap('page:' + url, _asyncToGenerator(_regenerator().m(function _callee8() {
-                      var html, page, season, players, items, ajax, text, body, data, errors, inline, st, n, _iterator6, _step6, _loop, diag, _t1, _t10;
+                      var html, page, season, players, items, ajax, text, body, data, errors, inline, st, n, _iterator7, _step7, _loop2, diag, _t1, _t10;
                       return _regenerator().w(function (_context9) {
                         while (1) switch (_context9.p = _context9.n) {
                           case 0:
@@ -1032,14 +1082,14 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                               break;
                             }
                             n = 0;
-                            _iterator6 = _createForOfIteratorHelper(players.iframes.slice(0, 6));
+                            _iterator7 = _createForOfIteratorHelper(players.iframes.slice(0, 6));
                             _context9.p = 6;
-                            _loop = _regenerator().m(function _loop() {
+                            _loop2 = _regenerator().m(function _loop2() {
                               var src, s, group, _t0;
                               return _regenerator().w(function (_context8) {
                                 while (1) switch (_context8.p = _context8.n) {
                                   case 0:
-                                    src = _step6.value;
+                                    src = _step7.value;
                                     n++;
                                     _context8.p = 1;
                                     _context8.n = 2;
@@ -1068,15 +1118,15 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                                   case 4:
                                     return _context8.a(2);
                                 }
-                              }, _loop, null, [[1, 3]]);
+                              }, _loop2, null, [[1, 3]]);
                             });
-                            _iterator6.s();
+                            _iterator7.s();
                           case 7:
-                            if ((_step6 = _iterator6.n()).done) {
+                            if ((_step7 = _iterator7.n()).done) {
                               _context9.n = 9;
                               break;
                             }
-                            return _context9.d(_regeneratorValues(_loop()), 8);
+                            return _context9.d(_regeneratorValues(_loop2()), 8);
                           case 8:
                             _context9.n = 7;
                             break;
@@ -1086,10 +1136,10 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                           case 10:
                             _context9.p = 10;
                             _t10 = _context9.v;
-                            _iterator6.e(_t10);
+                            _iterator7.e(_t10);
                           case 11:
                             _context9.p = 11;
-                            _iterator6.f();
+                            _iterator7.f();
                             return _context9.f(11);
                           case 12:
                             if (items.length) {
@@ -1535,7 +1585,9 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
         Promise.all(list.map(function (source) {
           return clientFor(source.id).online.findPages({
             title: m.title,
-            original: m.original
+            original: m.original,
+            year: m.year,
+            serial: m.serial
           }).then(function (pages) {
             return {
               source: source,
@@ -1557,6 +1609,12 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
               pages.push(p);
             });
             problems.push(r.source.name + ': ' + (r.error || (r.pages.length ? r.pages.length + ' знайдено' : 'нічого не знайдено')));
+          });
+          var exact = pages.some(function (p) {
+            return p.score >= 100;
+          });
+          if (exact) pages = pages.filter(function (p) {
+            return p.score >= 100;
           });
           if (pages.length) ok(pages);else fail('нічого не знайдено. ' + problems.join(' | '));
         });
@@ -1882,12 +1940,13 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
         btn.on('hover:enter', onEnter);
         return focusable(btn);
       }
-      function select(title, list, current, _onSelect) {
+      function select(title, list, current, _onSelect, subtitles) {
         Lampa.Select.show({
           title: title,
           items: list.map(function (name, i) {
             return {
               title: name,
+              subtitle: subtitles ? subtitles[i] : '',
               selected: i === current,
               index: i
             };
@@ -1923,6 +1982,22 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
         last = null;
         var voices = currentVoices();
         if (cur.voice >= voices.length) cur.voice = 0;
+        var src = sources[cur.source];
+        var shown = src.pages[currentTab().page] || src.pages[0];
+        var head = $('<div class="uakino-online__head"><div class="uakino-online__head-text"><div class="uakino-online__head-title"></div><div class="uakino-online__head-sub"></div></div></div>');
+        var poster = data && data.poster || shown.poster || src.pages[0].poster;
+        if (poster) head.prepend($('<img class="uakino-online__poster">').attr('src', poster));
+        var names = String(shown.title || data && data.title || '').split(/\s+\/\s+/);
+        [shown.original, data && data.original].forEach(function (o) {
+          if (o && names.indexOf(o) < 0) names.push(o);
+        });
+        head.find('.uakino-online__head-title').text(names[0] || '');
+        var sub = names.slice(1, 3);
+        var year = data && data.year || shown.year;
+        if (year) sub.push(year);
+        sub.push(src.name);
+        head.find('.uakino-online__head-sub').text(sub.join(' · '));
+        body.append(head);
         var filters = $('<div class="uakino-online__filters"></div>');
         var sourceBtn, voiceBtn, tabBtn;
         filters.append(sourceBtn = button('Джерело:', sourceLabel(sources[cur.source]), function () {
@@ -1935,7 +2010,9 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
               manual: true
             });
             loadCurrent();
-          });
+          }, sources.map(function (s) {
+            return s.pages[0].title;
+          }));
         }));
         if (voices.length > 1) {
           filters.append(voiceBtn = button('Озвучка:', voices[cur.voice], function () {
@@ -2107,7 +2184,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
         page: 1
       });
     }
-    var CSS = '<style>' + '.uakino-online__body{padding:0 1.5em 1.5em}' + '.uakino-online__filters,.uakino-online__tabs{display:flex;flex-wrap:wrap;margin-bottom:.5em}' + '.uakino-online__filter{padding:.6em 1.2em;margin:0 1em 1em 0;border-radius:1em;background:rgba(255,255,255,.1)}' + '.uakino-online__filter--active{background:rgba(255,255,255,.3)}' + '.uakino-online__list{display:block}' + '.uakino-online__item{display:block;padding:1em 1.2em;margin-bottom:.7em;border-radius:1em;background:rgba(0,0,0,.3)}' + '.uakino-online__filter.focus,.uakino-online__item.focus{background:#fff;color:#000}' + '.uakino-online__title{font-size:1.3em}' + '.uakino-online__info{margin-top:.3em;opacity:.6}' + '.uakino-online__empty{padding:2em 0;text-align:center;opacity:.7}' + '</style>';
+    var CSS = '<style>' + '.uakino-online__body{padding:0 1.5em 1.5em}' + '.uakino-online__head{display:flex;align-items:center;margin-bottom:1.2em}' + '.uakino-online__poster{width:5em;height:7.5em;object-fit:cover;border-radius:.6em;margin-right:1.2em;background:rgba(255,255,255,.05);flex-shrink:0}' + '.uakino-online__head-title{font-size:1.6em;font-weight:600}' + '.uakino-online__head-sub{margin-top:.4em;opacity:.6}' + '.uakino-online__filters,.uakino-online__tabs{display:flex;flex-wrap:wrap;margin-bottom:.5em}' + '.uakino-online__filter{padding:.6em 1.2em;margin:0 1em 1em 0;border-radius:1em;background:rgba(255,255,255,.1)}' + '.uakino-online__filter--active{background:rgba(255,255,255,.3)}' + '.uakino-online__list{display:block}' + '.uakino-online__item{display:block;padding:1em 1.2em;margin-bottom:.7em;border-radius:1em;background:rgba(0,0,0,.3)}' + '.uakino-online__filter.focus,.uakino-online__item.focus{background:#fff;color:#000}' + '.uakino-online__title{font-size:1.3em}' + '.uakino-online__info{margin-top:.3em;opacity:.6}' + '.uakino-online__empty{padding:2em 0;text-align:center;opacity:.7}' + '</style>';
     function addButtons(e) {
       var render = e.object.activity.render();
       if (render.find('.view--uakino').length) return;
