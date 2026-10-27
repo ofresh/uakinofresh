@@ -273,6 +273,33 @@
     }
   };
 
+  // ======================= TMDB (кадри й назви серій) =======================
+
+  function tmdbImage(path, size) {
+    if (!path || !Lampa.TMDB || !Lampa.TMDB.image) return '';
+    return Lampa.TMDB.image('t/p/' + size + path);
+  }
+
+  var tmdbSeasons = {};
+
+  // tv/{id}/season/{n} мовою Lampa → { номер серії: { name, still_path, runtime } } (з кешем).
+  function tmdbSeasonFor(movieId, season, done) {
+    var key = movieId + ':' + season;
+    if (tmdbSeasons[key] !== undefined) return done(tmdbSeasons[key]);
+    var lang = (Lampa.Storage.get('language', 'uk') || 'uk');
+    var net = new Lampa.Reguest();
+    net.timeout(10000);
+    net.silent(Lampa.TMDB.api('tv/' + movieId + '/season/' + season + '?api_key=' + Lampa.TMDB.key() + '&language=' + lang), function (json) {
+      var map = {};
+      ((json && json.episodes) || []).forEach(function (e) { map[e.episode_number] = e; });
+      tmdbSeasons[key] = map;
+      done(map);
+    }, function () {
+      tmdbSeasons[key] = null;
+      done(null);
+    });
+  }
+
   // ======================= Онлайн =======================
 
   // Висота відео (1080, 720…) з посилання: з міток якості або з master-плейлиста m3u8.
@@ -601,6 +628,10 @@
       return Lampa.Utils.hash(base);
     }
 
+    function tmdbSeason(season, done) {
+      tmdbSeasonFor(movie.id, season, done);
+    }
+
     function viewKey(item) {
       return String(hashFor(item) || [info.original || info.title, item.season || 0, item.episode || 0].join(':'));
     }
@@ -608,7 +639,40 @@
     function showViewed(el) {
       if (el.find('.uakino-online__viewed').length) return;
       el.addClass('uakino-online__item--viewed');
-      el.append($('<div class="uakino-online__viewed">' + ICON_EYE + '</div>'));
+      var box = el.find('.uakino-online__thumb');
+      (box.length ? box : el).append($('<div class="uakino-online__viewed">' + ICON_EYE + '</div>'));
+    }
+
+    // Кадри, назви й тривалість серій з TMDB (мовою Lampa) — підставляються в уже показані картки.
+    function decorateEpisodes(list) {
+      if (!info.serial || !movie.id || !Lampa.TMDB || !Lampa.TMDB.api || !Lampa.TMDB.key) return;
+      var cards = list.find('.uakino-online__item');
+      var seasons = {};
+      cards.each(function () {
+        var it = $(this).data('item');
+        var season = it && (it.season || (data && data.season) || 1);
+        if (it && it.episode) seasons[season] = true;
+      });
+      Object.keys(seasons).forEach(function (season) {
+        tmdbSeason(season, function (episodes) {
+          if (destroyed || !episodes) return;
+          cards.each(function () {
+            var el = $(this);
+            var it = el.data('item');
+            if (!it || !it.episode || String(it.season || (data && data.season) || 1) !== String(season)) return;
+            var ep = episodes[it.episode];
+            if (!ep) return;
+            var still = tmdbImage(ep.still_path, 'w300');
+            if (still) el.find('.uakino-online__thumb').css('background-image', 'url("' + still + '")').removeClass('uakino-online__thumb--fallback');
+            // Назва серії з TMDB, якщо це не просто «Серія N».
+            if (ep.name && !/^(серія|епізод|episode)\s*\d+$/i.test(ep.name)) el.find('.uakino-online__title').text(it.episode + '. ' + ep.name);
+            if (ep.runtime) {
+              var infoEl = el.find('.uakino-online__info');
+              infoEl.text(infoEl.text() + ' • ' + ep.runtime + ' хв');
+            }
+          });
+        });
+      });
     }
 
     function timeline(item) {
@@ -631,12 +695,15 @@
       }
       if (cur.voice >= voices.length) cur.voice = 0;
 
-      // Що знайдено: постер, назва, оригінальна назва й рік — видно, що це саме той фільм.
+      // Шапка в стилі Apple TV: кадр фільму на фоні, постер, назва, рік, якість, опис.
       var src = sources[cur.source];
       var shown = src.pages[currentTab().page] || src.pages[0];
-      var head = $('<div class="uakino-online__head"><div class="uakino-online__head-text"><div class="uakino-online__head-title"></div><div class="uakino-online__head-sub"></div></div></div>');
+      var head = $('<div class="uakino-online__head"><div class="uakino-online__hero-bg"></div><div class="uakino-online__hero-shade"></div>' +
+        '<div class="uakino-online__head-text"><div class="uakino-online__head-title"></div><div class="uakino-online__head-sub"></div><div class="uakino-online__head-descr"></div></div></div>');
       var poster = (data && data.poster) || shown.poster || src.pages[0].poster;
-      if (poster) head.prepend($('<img class="uakino-online__poster">').attr('src', poster));
+      var backdrop = tmdbImage(movie.backdrop_path, 'w1280') || tmdbImage(movie.poster_path, 'w780') || poster;
+      if (backdrop) head.find('.uakino-online__hero-bg').css('background-image', 'url("' + backdrop + '")');
+      if (poster) head.find('.uakino-online__head-text').before($('<img class="uakino-online__poster">').attr('src', poster));
       // Назва з картки пошуку: «Укр / Альтернативна / Original» → заголовок + решта підписом.
       var names = String(shown.title || (data && data.title) || '').split(/\s+\/\s+/);
       [shown.original, data && data.original].forEach(function (o) {
@@ -648,6 +715,8 @@
       if (year) sub.push(year);
       sub.push(src.name);
       head.find('.uakino-online__head-sub').text(sub.join(' · '));
+      if (src.quality > 0) head.find('.uakino-online__head-sub').append($('<span class="uakino-online__badge"></span>').text(src.quality >= 2000 ? '4K' : src.quality >= 1000 ? 'HD ' + src.quality + 'p' : src.quality + 'p'));
+      if (movie.overview) head.find('.uakino-online__head-descr').text(movie.overview);
       body.append(head);
 
       // Ряд 1: джерело й озвучка — доступні завжди, навіть якщо на сайті фільму немає.
@@ -703,16 +772,22 @@
         body.append($('<div class="uakino-online__empty"></div>').text('На цій сторінці немає відео. Виберіть інше джерело.'));
       }
 
-      var list = $('<div class="uakino-online__list"></div>');
+      var list = $('<div class="uakino-online__list' + (items.length === 1 ? ' uakino-online__list--single' : '') + '"></div>');
       var lastWatched = null;
       var lastKey = choice().last;
       items.forEach(function (item, index) {
-        var el = $('<div class="uakino-online__item selector"><div class="uakino-online__title"></div><div class="uakino-online__info"></div><div class="uakino-online__timeline"></div></div>');
+        // Картка 16:9: кадр серії (з TMDB, підвантажується після показу), номер, назва, озвучка.
+        var el = $('<div class="uakino-online__item selector">' +
+          '<div class="uakino-online__thumb"><div class="uakino-online__thumb-shade"></div><div class="uakino-online__num"></div><div class="uakino-online__timeline"></div></div>' +
+          '<div class="uakino-online__title"></div><div class="uakino-online__info"></div></div>');
+        if (backdrop) el.find('.uakino-online__thumb').css('background-image', 'url("' + backdrop + '")').addClass('uakino-online__thumb--fallback');
+        if (item.episode) el.find('.uakino-online__num').text(item.episode);
         el.find('.uakino-online__title').text(item.title || data.title);
         var meta = [];
         if (item.season || data.season) meta.push('Сезон ' + (item.season || data.season));
         if (item.group) meta.push(item.group);
         el.find('.uakino-online__info').text(meta.join(' • '));
+        el.data('item', item);
         var view = timeline(item);
         if (view && Lampa.Timeline.render) el.find('.uakino-online__timeline').append(Lampa.Timeline.render(view));
         // Значок «переглянуто»: серію запускали або Lampa записала, що її додивилися.
@@ -725,6 +800,7 @@
         list.append(focusable(el));
       });
       body.append(list);
+      decorateEpisodes(list);
       // Відкриваємо на останній переглянутій серії.
       if (lastWatched && !keepFocus) last = lastWatched;
 
@@ -994,23 +1070,41 @@
 
   // ======================= Інтеграція =======================
 
+  // Стиль Apple TV: темний фон, великий кадр у шапці, «таблетки», картки 16:9 зі збільшенням у фокусі.
+  // Без blur/backdrop-filter — щоб не гальмувало на ТВ.
   var CSS = '<style>' +
-    '.uakino-online__body{padding:0 1.5em 1.5em}' +
-    '.uakino-online__head{display:flex;align-items:center;margin-bottom:1.2em}' +
-    '.uakino-online__poster{width:5em;height:7.5em;object-fit:cover;border-radius:.6em;margin-right:1.2em;background:rgba(255,255,255,.05);flex-shrink:0}' +
-    '.uakino-online__head-title{font-size:1.6em;font-weight:600}' +
-    '.uakino-online__head-sub{margin-top:.4em;opacity:.6}' +
-    '.uakino-online__filters,.uakino-online__tabs{display:flex;flex-wrap:wrap;margin-bottom:.5em}' +
-    '.uakino-online__filter{padding:.6em 1.2em;margin:0 1em 1em 0;border-radius:1em;background:rgba(255,255,255,.1)}' +
-    '.uakino-online__filter--active{background:rgba(255,255,255,.3)}' +
-    '.uakino-online__list{display:block}' +
-    '.uakino-online__item{display:block;position:relative;padding:1em 3.5em 1em 1.2em;margin-bottom:.7em;border-radius:1em;background:rgba(0,0,0,.3)}' +
-    '.uakino-online__viewed{position:absolute;right:1.2em;top:50%;width:1.6em;height:1.6em;margin-top:-.8em;opacity:.85}' +
-    '.uakino-online__item--viewed .uakino-online__title{opacity:.75}' +
-    '.uakino-online__filter.focus,.uakino-online__item.focus{background:#fff;color:#000}' +
-    '.uakino-online__title{font-size:1.3em}' +
-    '.uakino-online__info{margin-top:.3em;opacity:.6}' +
-    '.uakino-online__empty{padding:2em 0;text-align:center;opacity:.7}' +
+    '.uakino-online{background:#0b0d11}' +
+    '.uakino-online__body{padding:0 2.2em 2em}' +
+    '.uakino-online__head{position:relative;display:flex;align-items:flex-end;min-height:19em;margin:0 -2.2em 1.6em;padding:4em 2.2em 1.8em;overflow:hidden}' +
+    '.uakino-online__hero-bg{position:absolute;left:0;top:0;right:0;bottom:0;background-size:cover;background-position:center 25%;opacity:.6}' +
+    '.uakino-online__hero-shade{position:absolute;left:0;top:0;right:0;bottom:0;background:linear-gradient(to top,#0b0d11 0%,rgba(11,13,17,.75) 40%,rgba(11,13,17,.1) 100%),linear-gradient(to right,rgba(11,13,17,.9) 0%,rgba(11,13,17,0) 65%)}' +
+    '.uakino-online__poster{position:relative;width:7.5em;height:11.25em;object-fit:cover;border-radius:.9em;margin-right:1.8em;box-shadow:0 1.2em 2.4em rgba(0,0,0,.55);flex-shrink:0}' +
+    '.uakino-online__head-text{position:relative;max-width:62%}' +
+    '.uakino-online__head-title{font-size:2.7em;font-weight:700;line-height:1.08;letter-spacing:-.01em}' +
+    '.uakino-online__head-sub{margin-top:.7em;font-size:1.05em;color:rgba(255,255,255,.75)}' +
+    '.uakino-online__badge{display:inline-block;margin-left:.6em;padding:.05em .45em;border:1px solid rgba(255,255,255,.7);border-radius:.3em;font-size:.8em;font-weight:700;color:#fff;vertical-align:.1em}' +
+    '.uakino-online__head-descr{margin-top:.8em;line-height:1.45;color:rgba(255,255,255,.68);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}' +
+    '.uakino-online__filters,.uakino-online__tabs{display:flex;flex-wrap:wrap;margin-bottom:.9em}' +
+    '.uakino-online__filter{padding:.7em 1.5em;margin:0 .8em .8em 0;border-radius:2em;background:rgba(255,255,255,.13);font-weight:500;transition:transform .15s,background-color .15s}' +
+    '.uakino-online__tabs .uakino-online__filter{padding:.55em 1.3em;background:rgba(255,255,255,.06)}' +
+    '.uakino-online__filter--active{background:rgba(255,255,255,.3) !important;font-weight:600}' +
+    '.uakino-online__filter.focus{background:#fff !important;color:#0b0d11;transform:scale(1.06)}' +
+    '.uakino-online__list{display:flex;flex-wrap:wrap;margin:.4em -.7em 0}' +
+    '.uakino-online__item{position:relative;width:calc(25% - 1.4em);margin:0 .7em 1.8em;transition:transform .2s}' +
+    '.uakino-online__list--single .uakino-online__item{width:calc(45% - 1.4em)}' +
+    '.uakino-online__thumb{position:relative;padding-top:56.25%;border-radius:1em;background:#1b1f27 center/cover no-repeat;overflow:hidden;box-shadow:0 .6em 1.4em rgba(0,0,0,.4)}' +
+    '.uakino-online__thumb--fallback{filter:brightness(.55)}' +
+    '.uakino-online__thumb-shade{position:absolute;left:0;right:0;bottom:0;height:55%;background:linear-gradient(to top,rgba(0,0,0,.75),rgba(0,0,0,0))}' +
+    '.uakino-online__num{position:absolute;left:.55em;bottom:.35em;font-size:1.9em;font-weight:800;color:#fff;text-shadow:0 .1em .4em rgba(0,0,0,.6)}' +
+    '.uakino-online__timeline{position:absolute;left:.8em;right:.8em;bottom:.5em}' +
+    '.uakino-online__viewed{position:absolute;right:.6em;top:.6em;width:1.6em;height:1.6em;padding:.25em;border-radius:50%;background:rgba(0,0,0,.6);color:#fff}' +
+    '.uakino-online__title{margin-top:.75em;font-size:1.05em;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+    '.uakino-online__info{margin-top:.25em;font-size:.85em;color:rgba(255,255,255,.55);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+    '.uakino-online__item--viewed .uakino-online__title{color:rgba(255,255,255,.7)}' +
+    '.uakino-online__item.focus{transform:scale(1.08);z-index:2}' +
+    '.uakino-online__item.focus .uakino-online__thumb{box-shadow:0 0 0 .22em #fff,0 1.4em 2.8em rgba(0,0,0,.65)}' +
+    '.uakino-online__item.focus .uakino-online__thumb--fallback{filter:brightness(.75)}' +
+    '.uakino-online__empty{padding:2.5em 0;text-align:center;color:rgba(255,255,255,.6)}' +
     '</style>';
 
   function addButtons(e) {

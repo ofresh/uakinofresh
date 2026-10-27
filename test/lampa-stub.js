@@ -6,6 +6,14 @@
   Q.prototype.after = function (q) { var n = this.nodes[0]; q.nodes.forEach(function (c) { n.parentNode.insertBefore(c, n.nextSibling); }); return this; };
   Q.prototype.before = function (q) { var n = this.nodes[0]; q.nodes.forEach(function (c) { n.parentNode.insertBefore(c, n); }); return this; };
   Q.prototype.text = function (t) { this.nodes.forEach(function (n) { n.textContent = t; }); return this; };
+  Q.prototype.css = function (k, v) { this.nodes.forEach(function (n) { n.style[k.replace(/-([a-z])/g, function (m, c) { return c.toUpperCase(); })] = v; }); return this; };
+  Q.prototype.data = function (k, v) {
+    if (arguments.length > 1) { this.nodes.forEach(function (n) { (n.__data = n.__data || {})[k] = v; }); return this; }
+    return this.nodes[0] && this.nodes[0].__data ? this.nodes[0].__data[k] : undefined;
+  };
+  Q.prototype.each = function (fn) { this.nodes.forEach(function (n, i) { fn.call(n, i, n); }); return this; };
+  Q.prototype.removeClass = function (c) { this.nodes.forEach(function (n) { n.classList.remove(c); }); return this; };
+  Q.prototype.toggleClass = function (c, on) { this.nodes.forEach(function (n) { n.classList.toggle(c, on); }); return this; };
   Q.prototype.attr = function (k, v) { this.nodes.forEach(function (n) { n.setAttribute(k, v); }); return this; };
   Q.prototype.prepend = function (q) { var n = this.nodes[0]; q.nodes.slice().reverse().forEach(function (c) { n.insertBefore(c, n.firstChild); }); return this; };
   Q.prototype.empty = function () { this.nodes.forEach(function (n) { n.innerHTML = ''; }); return this; };
