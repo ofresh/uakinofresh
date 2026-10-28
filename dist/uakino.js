@@ -533,8 +533,9 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
           var type = null;
           var genre = stripTags((html.match(/(Жанр|Тип)\s*:?\s*(<[^>]*>\s*)*[^<]{0,40}/i) || [''])[0]);
           var title = stripTags((html.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1] || '');
-          var genres = stripTags((html.match(/class=["'][^"']*__genres[^"']*["'][^>]*>([\s\S]*?)<\/div>/i) || [])[1] || '');
-          if (/\/(serials?|seriesss?|series|tv)(\/|-)|sezon|season/i.test(url || '')) type = 'serial';else if (/\/(films?|filmy|filmss|movies?)(\/|-)|\/movie-/i.test(url || '')) type = 'film';else if (/:\s*(мульт)?серіал|:\s*аніме-серіал/i.test(genre)) type = 'serial';else if (/:\s*(мульт)?фільм/i.test(genre)) type = 'film';else if (/аніме[\s-]*серіал/i.test(genres)) type = 'serial';else if (/аніме[\s-]*фільм|повнометраж/i.test(genres)) type = 'film';else if (/^\s*(мульт)?серіал/i.test(title)) type = 'serial';else if (/^\s*(мульт)?фільм/i.test(title)) type = 'film';else if (/сезон|серії|серія|season/i.test(title)) type = 'serial';else if (/"@type"\s*:\s*"TVSeries"/.test(html)) type = 'serial';else if (/"@type"\s*:\s*"Movie"/.test(html)) type = 'film';
+          var gm = html.match(/class=["'][^"']*pmovie__genres[^"']*["'][^>]*>([\s\S]*?)<\/div>/i);
+          var genres = gm ? stripTags(gm[1]) : null;
+          if (/\/(serials?|seriesss?|series|tv)(\/|-)|sezon|season/i.test(url || '')) type = 'serial';else if (/\/(films?|filmy|filmss|movies?)(\/|-)|\/movie-/i.test(url || '')) type = 'film';else if (/:\s*(мульт)?серіал|:\s*аніме-серіал/i.test(genre)) type = 'serial';else if (/:\s*(мульт)?фільм/i.test(genre)) type = 'film';else if (genres !== null) type = /повнометраж|аніме[\s-]*фільм/i.test(genres) ? 'film' : 'serial';else if (/^\s*(мульт)?серіал/i.test(title)) type = 'serial';else if (/^\s*(мульт)?фільм/i.test(title)) type = 'film';else if (/сезон|серії|серія|season/i.test(title)) type = 'serial';else if (/"@type"\s*:\s*"TVSeries"/.test(html)) type = 'serial';else if (/"@type"\s*:\s*"Movie"/.test(html)) type = 'film';
           return {
             type: type,
             year: parseYear(html)
@@ -549,8 +550,10 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
             });
           };
           var m;
-          var cls = /<(div|span|h2|h3|p)\b[^>]*class=["'][^"']*(original-title|oname|orig-title|title-original|alt-title)[^"']*["'][^>]*>([\s\S]*?)<\/\1>/gi;
+          var cls = /<(div|span|h2|h3|p)\b[^>]*class=["'][^"']*(original-title|oname|orig-title|title-original|alt-title|header-subtitle)[^"']*["'][^>]*>([\s\S]*?)<\/\1>/gi;
           while (m = cls.exec(html)) add(m[3]);
+          var h1 = html.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i);
+          if (h1) add(stripTags(h1[1]).replace(/\s+(дивит[иь]с[яь]|смотреть)(\s.*)?$/i, ''));
           var field = />\s*(Оригінальна\s+назва|Назва\s+англійською|Англійська\s+назва|Оригінал|Original\s+title)\s*:\s*(?:<[^>]*>\s*)*([^<]{2,120})/gi;
           while (m = field.exec(html)) add(m[2]);
           var share = /twitter\.com\/intent\/tweet\?text=([^"&]+?)(?:%20|\s)https?:/i.exec(html);
@@ -630,6 +633,10 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
           var m = String(s || '').match(/(?:сезон|season|sezon)[\s_-]*(\d+)|(\d+)(?:st|nd|rd|th)?[\s_-]*(?:сезон|sezon|season)/i);
           return m ? Number(m[1] || m[2]) : null;
         }
+        function urlSeason(url) {
+          var n = seasonOf(url);
+          return n && n < 10 ? n : null;
+        }
         function episodeOf(s) {
           var m = String(s || '').match(/(\d+)\s*(?:сері|серия|епізод|episode)|(?:сері[яї]|серия|епізод|episode)\s*(\d+)|^\s*(\d+)\b/i);
           return m ? Number(m[1] || m[2] || m[3]) : null;
@@ -649,8 +656,13 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
           var skip = function skip(src) {
             return /youtube|trailer|\.(js|css|png|jpe?g|webp|gif|svg|ico)(\?|$)/i.test(src);
           };
+          var trailer = false;
           var add = function add(src) {
-            if (!src || iframes.indexOf(src) >= 0 || skip(src)) return;
+            if (!src || iframes.indexOf(src) >= 0) return;
+            if (skip(src)) {
+              if (/youtube|youtu\.be|trailer/i.test(src)) trailer = true;
+              return;
+            }
             iframes.push(src);
           };
           var re = /<iframe\b[^>]*>/gi;
@@ -681,7 +693,8 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
           return {
             playlist: playlist,
             iframes: iframes,
-            seen: seen
+            seen: seen,
+            trailer: trailer
           };
         }
         function parsePlaylist(html, host) {
@@ -983,7 +996,8 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                                 if (!found.has(item.id)) {
                                   found.set(item.id, Object.assign({}, item, {
                                     score: parse.scoreTitle(item, titles),
-                                    season: seasonOf(item.title) || seasonOf(item.url),
+                                    season: seasonOf(item.title) || urlSeason(item.url),
+                                    titleSeason: seasonOf(item.title),
                                     year: parse.yearOf(item),
                                     latin: !/[\u0400-\u04ff]/.test(q)
                                   }));
@@ -1063,7 +1077,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                               return pageHtml(p.url);
                             case 1:
                               names = _t7.pageNames.call(_t7, _context6.v).filter(function (n) {
-                                return !seasonOf(n) || seasonOf(n) === (p.season || 1);
+                                return !seasonOf(n) || seasonOf(n) === (p.titleSeason || 1);
                               });
                               s = names.reduce(function (m, n) {
                                 return Math.max(m, parse.scoreTitle({
@@ -1093,6 +1107,12 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                   case 10:
                     if (serial) {
                       qs = titles.map(parse.baseTitle);
+                      found.forEach(function (p) {
+                        if (p.score >= 100) parse.altNames(p).forEach(function (n) {
+                          var b = parse.baseTitle(n);
+                          if (!/\s\d{1,2}$/.test(b) && qs.indexOf(b) < 0) qs.push(b);
+                        });
+                      });
                       found.forEach(function (p) {
                         if (p.season) return;
                         parse.altNames(p).some(function (n) {
@@ -1571,9 +1591,9 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                               _context12.n = 26;
                               break;
                             }
-                            onlyTrailer = players.seen.length > 0 && players.seen.every(function (h) {
+                            onlyTrailer = !players.iframes.length && (players.trailer || players.seen.length > 0 && players.seen.every(function (h) {
                               return /youtube|youtu\.be/i.test(h);
-                            });
+                            }));
                             if (!/пройдіть\s+авторизацію|змініть\s+країну|увійдіть,?\s+щоб\s+дивитис|доступн\w*\s+лише\s+(для\s+)?зареєстрован/i.test(parse.stripTags(html))) {
                               _context12.n = 24;
                               break;
@@ -1586,7 +1606,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                               _context12.n = 25;
                               break;
                             }
-                            throw Object.assign(new Error(name + ': на сторінці поки лише трейлер — серії з озвучкою ще не вийшли'), {
+                            throw Object.assign(new Error(name + ': на сторінці лише трейлер — відео ще не вийшло або сайт не показує його з цього IP (лише з українського)'), {
                               status: 404
                             });
                           case 25:

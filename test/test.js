@@ -521,7 +521,7 @@ test('інші сайти: пошук, назви з карток, плеєри 
   SITES['https://uafix.net/serials/locked/'] = '<div id="fplayer"><div class="video-box"><iframe src="https://www.youtube.com/embed/x"></iframe></div><div><span>Якщо Ви бачите тільки трейлер або плеєр не працює, тоді пройдіть авторизацію або змініть країну перегляду за допомогою ВПН!</span></div></div>';
   await assert.rejects(fix.online.loadPage('https://uafix.net/serials/locked/'), /UAFlix: сайт показує лише трейлер — відео доступне тільки з українського IP/);
   SITES['https://uafix.net/serials/soon/'] = '<iframe src="https://www.youtube.com/embed/y"></iframe>';
-  await assert.rejects(fix.online.loadPage('https://uafix.net/serials/soon/'), /UAFlix: на сторінці поки лише трейлер — серії з озвучкою ще не вийшли/);
+  await assert.rejects(fix.online.loadPage('https://uafix.net/serials/soon/'), /UAFlix: на сторінці лише трейлер — відео ще не вийшло/);
 
   const ser = createClient({ source: get('uaserial'), fetchText: fakeFetch([]) });
   const p3 = await ser.online.findPages(q);
@@ -846,6 +846,12 @@ test('аніме: інший переклад назви на сайті, рос
   // «Наруто 2 сезон» на сторінці «Ураганних хронік» не робить її точним збігом для «Наруто».
   const naruto = await online.findPages({ title: 'Наруто', serial: true });
   assert.ok(naruto.every((p) => p.score < 100));
+  // AnimeUA: без «Аніме серіали» в жанрах — усе одно серіал; «Повнометражка» — фільм.
+  assert.strictEqual(parse.pageMeta('<div class="pmovie__genres">Бойовик / Фентезі</div>"@type": "Movie"', 'https://animeua.club/1215-x.html').type, 'serial');
+  assert.strictEqual(parse.pageMeta('<div class="pmovie__genres">Аніме серіали / Повнометражка</div>', 'https://animeua.club/7154-x.html').type, 'film');
+  // Eneyida: підзаголовок з оригінальною назвою; UAFlix: хвіст «дивитись онлайн» у h1.
+  assert.deepStrictEqual(parse.pageNames('<h1>Сворд Арт Онлайн / Майстри меча онлайн</h1><div class="full_header-subtitle">Sword Art Online</div>'), ['Sword Art Online', 'Сворд Арт Онлайн', 'Майстри меча онлайн']);
+  assert.deepStrictEqual(parse.pageNames('<h1>Проти урагану дивитись онлайн</h1>'), ['Проти урагану']);
   assert.deepStrictEqual(parse.pageMeta('<div class="pmovie__year">Прем\'єра: 2023-09-29</div><div class="pmovie__genres"><a href="/drama/">Драма</a> / <a href="/anime/">Аніме серіали</a></div>"@type": "Movie"', 'https://animeua.club/7606-x.html'), { type: 'serial', year: 2023 });
 });
 
