@@ -289,7 +289,7 @@
       var list = enabledSources();
       if (!list.length) return fail('усі сайти вимкнено в налаштуваннях');
       Promise.all(list.map(function (source) {
-        return clientFor(source.id).online.findPages({ title: m.title, original: m.original, year: m.year, serial: m.serial }).then(function (pages) {
+        return clientFor(source.id).online.findPages({ title: m.title, original: m.original, year: m.year, serial: m.serial, titles: m.titles || [] }).then(function (pages) {
           return { source: source, pages: pages };
         }, function (e) {
           return { source: source, pages: [], error: (e && e.message) || String(e) };
@@ -466,7 +466,7 @@
       };
       this.activity.loader(true);
 
-      Api.search(info, alive(function (pages) {
+      var searched = alive(function (pages) {
         var byId = {};
         (pages || []).forEach(function (p) {
           if (!byId[p.source]) {
@@ -477,8 +477,20 @@
         });
         if (!sources.length) return message('Нічого не знайдено');
         pickDefault();
-      }), alive(function (err) {
+      });
+      var failed = alive(function (err) {
         message('UAKino: ' + err);
+      });
+      tmdbTitles(movie, alive(function (names) {
+        var query = {
+          title: names.uk || info.title,
+          original: info.original,
+          year: info.year,
+          serial: info.serial,
+          // Пошук іде за першими (українська, англійська, оригінал, ромадзі); решта — для порівняння.
+          titles: [names.en].concat(names.alts, [info.title, names.ru]).filter(Boolean)
+        };
+        Api.search(query, searched, failed);
       }));
       return this.render();
     };
@@ -1207,6 +1219,59 @@
     });
   }
 
+  // Правильні назви з TMDB: Lampa іноді показує аніме російською назвою («Магическая битва»),
+  // а українські сайти знають його як «Магічна битва» / «Jujutsu Kaisen». Беремо українську,
+  // англійську й латинські альтернативні (ромадзі) — і шукаємо за ними.
+  // Як isRussian у lib/parse.js: ы/э/ъ/ё або російські закінчення без українських літер.
+  var RU = { test: function (t) {
+    t = String(t || '');
+    return /[ыэъё]/i.test(t) || /[а-я]/i.test(t) && !/[іїєґ]/i.test(t) && /[а-я](ая|ое|ые|ой|ого|ую|ться)(?![а-я])/i.test(t);
+  } };
+  var titleCache = {};
+
+  function tmdbTitles(movie, done) {
+    var info = movieInfo(movie);
+    var fallback = { uk: RU.test(info.title) ? '' : info.title, en: '', ru: RU.test(info.title) ? info.title : '', alts: [] };
+    var id = movie.id;
+    var type = info.serial ? 'tv' : 'movie';
+    if (!id || !Lampa.TMDB || !Lampa.TMDB.api || !Lampa.TMDB.key || movie.source && movie.source !== 'tmdb') return done(fallback);
+    if (titleCache[type + id]) return done(titleCache[type + id]);
+    var finished = false;
+    var finish = function (r) {
+      if (finished) return;
+      finished = true;
+      done(r);
+    };
+    var net = new Lampa.Reguest();
+    net.timeout(7000);
+    net.silent(Lampa.TMDB.api(type + '/' + id + '?api_key=' + Lampa.TMDB.key() + '&language=uk-UA&append_to_response=translations,alternative_titles'), function (json) {
+      var r = { uk: '', en: '', ru: '', alts: [] };
+      var tr = (json && json.translations && json.translations.translations) || [];
+      tr.forEach(function (t) {
+        var name = t.data && (t.data.title || t.data.name);
+        if (!name) return;
+        if (t.iso_639_1 === 'uk' && !r.uk) r.uk = name;
+        else if (t.iso_639_1 === 'en' && (!r.en || t.iso_3166_1 === 'US')) r.en = name;
+        else if (t.iso_639_1 === 'ru' && !r.ru) r.ru = name;
+      });
+      if (!r.uk && json && (json.title || json.name) && !RU.test(json.title || json.name) && (json.title || json.name) !== (json.original_title || json.original_name)) r.uk = json.title || json.name;
+      var alt = (json && json.alternative_titles && (json.alternative_titles.titles || json.alternative_titles.results)) || [];
+      alt.forEach(function (a) {
+        var t = String(a.title || '').trim();
+        if (!t || CJK.test(t) || RU.test(t) || r.alts.indexOf(t) >= 0) return;
+        // Українські й латинські (англ./ромадзі) назви; кирилиця інших країн — зазвичай російська.
+        // Інші країни дають переклади («Guerra de hechiceros»), а не назви, за якими шукають.
+        if (a.iso_3166_1 === 'UA' || /^(US|GB|JP|KR|CN)$/.test(a.iso_3166_1) && /^[\x20-\x7e\u00c0-\u024f\u2018-\u201d]+$/.test(t)) r.alts.push(t);
+      });
+      if (!r.uk && !RU.test(info.title)) r.uk = info.title;
+      r.alts = r.alts.slice(0, 6);
+      titleCache[type + id] = r;
+      finish(r);
+    }, function () {
+      finish(fallback);
+    });
+  }
+
   function openTorrents(movie) {
     patchParser();
     // Якщо вказано логін Толоки, а входу ще не було — спершу входимо.
@@ -1214,8 +1279,10 @@
       return doLogin('toloka', function () { openTorrents(movie); });
     }
     var info = movieInfo(movie);
-    var local = withoutBrackets(info.title);
+    tmdbTitles(movie, function (names) {
+    var local = withoutBrackets(names.uk || info.title);
     englishTitle(movie, function (english) {
+      if (names.en && (!english || CJK.test(info.original))) english = names.en;
       Lampa.Activity.push({
         url: '',
         title: TORRENTS_LABEL,
@@ -1228,6 +1295,7 @@
         page: 1,
         uakino_ua: true
       });
+    });
     });
   }
 

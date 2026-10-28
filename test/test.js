@@ -823,6 +823,32 @@ test('worker: зібраний файл актуальний і віддає т�
   }
 });
 
+test('аніме: інший переклад назви на сайті, російська назва з Lampa, сезон цифрою', async () => {
+  const { createOnline } = require('../lib/online');
+  // Російську назву не шукаємо; латинська назва знаходить сторінку з іншим українським перекладом.
+  assert.deepStrictEqual(parse.titleVariants(['Фрірен: після кінця пригоди', 'Провожающая в последний путь Фрирен', 'Sousou no Frieren']).search, ['Фрірен: після кінця пригоди', 'Sousou no Frieren']);
+  const host = 'https://anitube.in.ua';
+  const pages = {
+    [host + '/1-frieren-1.html']: '<title>Фрірен, що проводжає в останню путь (1 сезон)</title><a href="https://twitter.com/intent/tweet?text=Фрірен, що проводжає в останню путь (1 сезон) / Sousou no Frieren%20https://anitube.in.ua/1-frieren-1.html">t</a>',
+    [host + '/2-naruto-2.html']: '<title>Наруто: Ураганні хроніки</title><div class="original-title">Наруто 2 сезон</div>',
+    [host + '/3-frieren-2.html']: '<title>Фрірен: після кінця пригоди 2</title>',
+  };
+  const list = { 'Sousou no Frieren': '<h2><a href="' + host + '/1-frieren-1.html">Фрірен, що проводжає в останню путь (1 сезон)</a></h2><h2><a href="' + host + '/3-frieren-2.html">Фрірен: після кінця пригоди 2</a></h2>', 'Наруто': '<h2><a href="' + host + '/2-naruto-2.html">Наруто: Ураганні хроніки</a></h2>' };
+  const searched = [];
+  const online = createOnline({
+    host, name: 'AniTube', anyPlayer: true,
+    fetchText: async (url) => pages[url] || '',
+    searchSite: async (q) => { searched.push(q); return parse.parseList(list[q] || '', host); },
+  });
+  const found = await online.findPages({ title: 'Фрірен: після кінця пригоди', original: '葬送のフリーレン', serial: true, titles: ['Sousou no Frieren', 'Провожающая в последний путь Фрирен'] });
+  assert.deepStrictEqual(found.map((p) => [p.url, p.season]), [[host + '/1-frieren-1.html', 1], [host + '/3-frieren-2.html', 2]]);
+  assert.ok(!searched.some((q) => /Провожающая/.test(q)));
+  // «Наруто 2 сезон» на сторінці «Ураганних хронік» не робить її точним збігом для «Наруто».
+  const naruto = await online.findPages({ title: 'Наруто', serial: true });
+  assert.ok(naruto.every((p) => p.score < 100));
+  assert.deepStrictEqual(parse.pageMeta('<div class="pmovie__year">Прем\'єра: 2023-09-29</div><div class="pmovie__genres"><a href="/drama/">Драма</a> / <a href="/anime/">Аніме серіали</a></div>"@type": "Movie"', 'https://animeua.club/7606-x.html'), { type: 'serial', year: 2023 });
+});
+
 (async () => {
   let failed = 0;
   for (const t of tests) {

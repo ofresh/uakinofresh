@@ -400,7 +400,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
           var ld = html.match(/"dateCreated"\s*:\s*"((?:19|20)\d{2})/);
           if (ld) return Number(ld[1]);
           var text = stripTags(html);
-          var m = text.match(/Р(?:ік|ок|од)(?: виходу| выхода)?\s*:\s*((?:19|20)\d{2})/i);
+          var m = text.match(/(?:Р(?:ік|ок|од)(?: виходу| выхода)?|Прем['ʼ’]?єра)\s*:\s*((?:19|20)\d{2})/i);
           if (m) return Number(m[1]);
           var title = (html.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1] || '';
           var t = title.match(/(?:^|\D)((?:19|20)\d{2})(?!\d)/);
@@ -473,7 +473,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
         }
         function baseTitle(s) {
           var n = normalizeTitle(s);
-          var cut = n.replace(/\s*((\d+\s*)+сезон|сезон\s*\d+|season\s*\d+|\d+\s*season).*$/, '').trim();
+          var cut = n.replace(/\s*((\d+\s*)+сезон|сезон\s*\d+|season\s*\d+|\d+(st|nd|rd|th)?\s*season).*$/, '').trim();
           var noYear = cut.replace(/\b(19|20)\d{2}\b/g, ' ').replace(/\s+/g, ' ').trim();
           return noYear || cut || n;
         }
@@ -533,11 +533,40 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
           var type = null;
           var genre = stripTags((html.match(/(Жанр|Тип)\s*:?\s*(<[^>]*>\s*)*[^<]{0,40}/i) || [''])[0]);
           var title = stripTags((html.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1] || '');
-          if (/\/(serials?|seriesss?|series|tv)(\/|-)|sezon|season/i.test(url || '')) type = 'serial';else if (/\/(films?|filmy|filmss|movies?)(\/|-)|\/movie-/i.test(url || '')) type = 'film';else if (/:\s*(мульт)?серіал|:\s*аніме-серіал/i.test(genre)) type = 'serial';else if (/:\s*(мульт)?фільм/i.test(genre)) type = 'film';else if (/^\s*(мульт)?серіал/i.test(title)) type = 'serial';else if (/^\s*(мульт)?фільм/i.test(title)) type = 'film';else if (/сезон|серії|серія|season/i.test(title)) type = 'serial';else if (/"@type"\s*:\s*"TVSeries"/.test(html)) type = 'serial';else if (/"@type"\s*:\s*"Movie"/.test(html)) type = 'film';
+          var genres = stripTags((html.match(/class=["'][^"']*__genres[^"']*["'][^>]*>([\s\S]*?)<\/div>/i) || [])[1] || '');
+          if (/\/(serials?|seriesss?|series|tv)(\/|-)|sezon|season/i.test(url || '')) type = 'serial';else if (/\/(films?|filmy|filmss|movies?)(\/|-)|\/movie-/i.test(url || '')) type = 'film';else if (/:\s*(мульт)?серіал|:\s*аніме-серіал/i.test(genre)) type = 'serial';else if (/:\s*(мульт)?фільм/i.test(genre)) type = 'film';else if (/аніме[\s-]*серіал/i.test(genres)) type = 'serial';else if (/аніме[\s-]*фільм|повнометраж/i.test(genres)) type = 'film';else if (/^\s*(мульт)?серіал/i.test(title)) type = 'serial';else if (/^\s*(мульт)?фільм/i.test(title)) type = 'film';else if (/сезон|серії|серія|season/i.test(title)) type = 'serial';else if (/"@type"\s*:\s*"TVSeries"/.test(html)) type = 'serial';else if (/"@type"\s*:\s*"Movie"/.test(html)) type = 'film';
           return {
             type: type,
             year: parseYear(html)
           };
+        }
+        function pageNames(html) {
+          var out = [];
+          var add = function add(t) {
+            String(t || '').split(/\s+\/\s+/).forEach(function (n) {
+              n = decodeEntities(stripTags(n)).replace(/\s+/g, ' ').trim();
+              if (n && n.length < 120 && out.indexOf(n) < 0) out.push(n);
+            });
+          };
+          var m;
+          var cls = /<(div|span|h2|h3|p)\b[^>]*class=["'][^"']*(original-title|oname|orig-title|title-original|alt-title)[^"']*["'][^>]*>([\s\S]*?)<\/\1>/gi;
+          while (m = cls.exec(html)) add(m[3]);
+          var field = />\s*(Оригінальна\s+назва|Назва\s+англійською|Англійська\s+назва|Оригінал|Original\s+title)\s*:\s*(?:<[^>]*>\s*)*([^<]{2,120})/gi;
+          while (m = field.exec(html)) add(m[2]);
+          var share = /twitter\.com\/intent\/tweet\?text=([^"&]+?)(?:%20|\s)https?:/i.exec(html);
+          if (share) {
+            var t = share[1];
+            try {
+              t = decodeURIComponent(t);
+            } catch (e) {}
+            add(t);
+          }
+          return out;
+        }
+        function isRussian(t) {
+          t = String(t || '');
+          if (/[ыэъё]/i.test(t)) return true;
+          return /[а-я]/i.test(t) && !/[іїєґ]/i.test(t) && /[а-я](ая|ое|ые|ой|ого|ую|ться)(?![а-я])/i.test(t);
         }
         function titleVariants(list) {
           var all = [];
@@ -554,13 +583,15 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
           return {
             match: all,
             search: all.filter(function (t) {
-              return !cjk.test(t);
-            }).slice(0, 3)
+              return !cjk.test(t) && !isRussian(t);
+            }).slice(0, 4)
           };
         }
         module.exports = {
           titleVariants: titleVariants,
+          isRussian: isRussian,
           pageMeta: pageMeta,
+          pageNames: pageNames,
           scoreTitle: scoreTitle,
           baseTitle: baseTitle,
           altNames: altNames,
@@ -596,8 +627,8 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
         }
         function seasonOf(s) {
           if (/\d+\s*[-–]\s*\d+[\s_-]*(сезон|sezon)/i.test(String(s || ''))) return null;
-          var m = String(s || '').match(/(?:сезон|season|sezon)[\s_-]*(\d+)|(\d+)[\s_-]*(?:сезон|sezon)|season\s*(\d+)/i);
-          return m ? Number(m[1] || m[2] || m[3]) : null;
+          var m = String(s || '').match(/(?:сезон|season|sezon)[\s_-]*(\d+)|(\d+)(?:st|nd|rd|th)?[\s_-]*(?:сезон|sezon|season)/i);
+          return m ? Number(m[1] || m[2]) : null;
         }
         function episodeOf(s) {
           var m = String(s || '').match(/(\d+)\s*(?:сері|серия|епізод|episode)|(?:сері[яї]|серия|епізод|episode)\s*(\d+)|^\s*(\d+)\b/i);
@@ -913,106 +944,116 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
             return _findPages.apply(this, arguments);
           }
           function _findPages() {
-            _findPages = _asyncToGenerator(_regenerator().m(function _callee7(_ref4) {
-              var _ref4$title, title, _ref4$original, original, _ref4$query, query, _ref4$year, year, serial, variants, titles, found, lastError, _iterator5, _step5, q, _iterator6, _step6, item, list, best, qs, y, seen, _t9, _t0, _t1;
-              return _regenerator().w(function (_context7) {
-                while (1) switch (_context7.p = _context7.n) {
+            _findPages = _asyncToGenerator(_regenerator().m(function _callee8(_ref4) {
+              var _ref4$title, title, _ref4$original, original, _ref4$query, query, _ref4$year, year, serial, _ref4$titles, extra, variants, titles, found, lastError, _iterator5, _step5, _loop2, cand, qs, list, best, y, seen, _t11;
+              return _regenerator().w(function (_context9) {
+                while (1) switch (_context9.p = _context9.n) {
                   case 0:
-                    _ref4$title = _ref4.title, title = _ref4$title === void 0 ? '' : _ref4$title, _ref4$original = _ref4.original, original = _ref4$original === void 0 ? '' : _ref4$original, _ref4$query = _ref4.query, query = _ref4$query === void 0 ? '' : _ref4$query, _ref4$year = _ref4.year, year = _ref4$year === void 0 ? null : _ref4$year, serial = _ref4.serial;
-                    variants = parse.titleVariants([title, original, query]);
+                    _ref4$title = _ref4.title, title = _ref4$title === void 0 ? '' : _ref4$title, _ref4$original = _ref4.original, original = _ref4$original === void 0 ? '' : _ref4$original, _ref4$query = _ref4.query, query = _ref4$query === void 0 ? '' : _ref4$query, _ref4$year = _ref4.year, year = _ref4$year === void 0 ? null : _ref4$year, serial = _ref4.serial, _ref4$titles = _ref4.titles, extra = _ref4$titles === void 0 ? [] : _ref4$titles;
+                    variants = parse.titleVariants([title, original, query].concat(extra || []));
                     titles = variants.match;
                     found = new Map();
                     lastError = null;
                     _iterator5 = _createForOfIteratorHelper(variants.search);
-                    _context7.p = 1;
+                    _context9.p = 1;
+                    _loop2 = _regenerator().m(function _loop2() {
+                      var q, yq, _iterator6, _step6, item, _t1, _t10;
+                      return _regenerator().w(function (_context8) {
+                        while (1) switch (_context8.p = _context8.n) {
+                          case 0:
+                            q = _step5.value;
+                            yq = Number(year) || 0;
+                            if (!Array.from(found.values()).some(function (p) {
+                              return p.score >= 100 && (!yq || !p.year || Math.abs(p.year - yq) <= 1);
+                            })) {
+                              _context8.n = 1;
+                              break;
+                            }
+                            return _context8.a(2, 1);
+                          case 1:
+                            _context8.p = 1;
+                            _t1 = _createForOfIteratorHelper;
+                            _context8.n = 2;
+                            return searchSite(q);
+                          case 2:
+                            _iterator6 = _t1(_context8.v);
+                            try {
+                              for (_iterator6.s(); !(_step6 = _iterator6.n()).done;) {
+                                item = _step6.value;
+                                if (!found.has(item.id)) {
+                                  found.set(item.id, Object.assign({}, item, {
+                                    score: parse.scoreTitle(item, titles),
+                                    season: seasonOf(item.title) || seasonOf(item.url),
+                                    year: parse.yearOf(item),
+                                    latin: !/[\u0400-\u04ff]/.test(q)
+                                  }));
+                                }
+                              }
+                            } catch (err) {
+                              _iterator6.e(err);
+                            } finally {
+                              _iterator6.f();
+                            }
+                            _context8.n = 4;
+                            break;
+                          case 3:
+                            _context8.p = 3;
+                            _t10 = _context8.v;
+                            lastError = _t10;
+                          case 4:
+                            return _context8.a(2);
+                        }
+                      }, _loop2, null, [[1, 3]]);
+                    });
                     _iterator5.s();
                   case 2:
                     if ((_step5 = _iterator5.n()).done) {
-                      _context7.n = 7;
+                      _context9.n = 5;
                       break;
                     }
-                    q = _step5.value;
-                    _context7.p = 3;
-                    _t9 = _createForOfIteratorHelper;
-                    _context7.n = 4;
-                    return searchSite(q);
-                  case 4:
-                    _iterator6 = _t9(_context7.v);
-                    try {
-                      for (_iterator6.s(); !(_step6 = _iterator6.n()).done;) {
-                        item = _step6.value;
-                        if (!found.has(item.id)) {
-                          found.set(item.id, Object.assign({}, item, {
-                            score: parse.scoreTitle(item, titles),
-                            season: seasonOf(item.title) || seasonOf(item.url),
-                            year: parse.yearOf(item)
-                          }));
-                        }
-                      }
-                    } catch (err) {
-                      _iterator6.e(err);
-                    } finally {
-                      _iterator6.f();
+                    return _context9.d(_regeneratorValues(_loop2()), 3);
+                  case 3:
+                    if (!_context9.v) {
+                      _context9.n = 4;
+                      break;
                     }
-                    _context7.n = 6;
+                    return _context9.a(3, 5);
+                  case 4:
+                    _context9.n = 2;
                     break;
                   case 5:
-                    _context7.p = 5;
-                    _t0 = _context7.v;
-                    lastError = _t0;
+                    _context9.n = 7;
+                    break;
                   case 6:
-                    _context7.n = 2;
-                    break;
+                    _context9.p = 6;
+                    _t11 = _context9.v;
+                    _iterator5.e(_t11);
                   case 7:
-                    _context7.n = 9;
-                    break;
-                  case 8:
-                    _context7.p = 8;
-                    _t1 = _context7.v;
-                    _iterator5.e(_t1);
-                  case 9:
-                    _context7.p = 9;
+                    _context9.p = 7;
                     _iterator5.f();
-                    return _context7.f(9);
-                  case 10:
+                    return _context9.f(7);
+                  case 8:
                     if (!(!found.size && lastError)) {
-                      _context7.n = 11;
+                      _context9.n = 9;
                       break;
                     }
                     throw lastError;
-                  case 11:
-                    list = Array.from(found.values()).filter(function (p) {
-                      return p.score >= 50;
-                    });
-                    best = list.reduce(function (m, p) {
-                      return Math.max(m, p.score);
-                    }, 0);
-                    list = list.filter(function (p) {
-                      return p.score === best;
-                    });
-                    if (serial) {
-                      qs = titles.map(parse.baseTitle);
-                      list.forEach(function (p) {
-                        if (p.season) return;
-                        parse.altNames(p).some(function (n) {
-                          var m = parse.baseTitle(n).match(/^(.*\S)\s+(\d{1,2})$/);
-                          if (m && qs.indexOf(m[1]) >= 0) {
-                            p.season = Number(m[2]);
-                            return true;
-                          }
-                          return false;
-                        });
-                      });
-                    }
-                    y = Number(year) || 0;
-                    if (!(y || list.length > 1)) {
-                      _context7.n = 13;
+                  case 9:
+                    if (Array.from(found.values()).some(function (p) {
+                      return p.score >= 100;
+                    })) {
+                      _context9.n = 10;
                       break;
                     }
-                    _context7.n = 12;
-                    return Promise.all(list.slice(0, 8).map(function () {
+                    cand = Array.from(found.values()).filter(function (p) {
+                      return p.latin || p.score > 0;
+                    }).sort(function (a, b) {
+                      return b.score - a.score;
+                    }).slice(0, 8);
+                    _context9.n = 10;
+                    return Promise.all(cand.map(function () {
                       var _ref5 = _asyncToGenerator(_regenerator().m(function _callee6(p) {
-                        var meta, _t7, _t8;
+                        var names, s, _t7, _t8;
                         return _regenerator().w(function (_context6) {
                           while (1) switch (_context6.p = _context6.n) {
                             case 0:
@@ -1021,15 +1062,25 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                               _context6.n = 1;
                               return pageHtml(p.url);
                             case 1:
-                              meta = _t7.pageMeta.call(_t7, _context6.v, p.url);
-                              p.type = meta.type;
-                              if (meta.year) p.year = meta.year;
+                              names = _t7.pageNames.call(_t7, _context6.v).filter(function (n) {
+                                return !seasonOf(n) || seasonOf(n) === (p.season || 1);
+                              });
+                              s = names.reduce(function (m, n) {
+                                return Math.max(m, parse.scoreTitle({
+                                  title: n
+                                }, titles));
+                              }, 0);
+                              if (s > p.score) {
+                                p.score = s;
+                                if (!p.original) p.original = names.filter(function (n) {
+                                  return parse.altNames(p).indexOf(n) < 0;
+                                })[0] || '';
+                              }
                               _context6.n = 3;
                               break;
                             case 2:
                               _context6.p = 2;
                               _t8 = _context6.v;
-                              p.type = parse.pageMeta('', p.url).type;
                             case 3:
                               return _context6.a(2);
                           }
@@ -1039,7 +1090,67 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                         return _ref5.apply(this, arguments);
                       };
                     }()));
-                  case 12:
+                  case 10:
+                    if (serial) {
+                      qs = titles.map(parse.baseTitle);
+                      found.forEach(function (p) {
+                        if (p.season) return;
+                        parse.altNames(p).some(function (n) {
+                          var m = parse.baseTitle(n).match(/^(.*\S)\s+(\d{1,2})$/);
+                          if (m && Number(m[2]) > 0 && qs.indexOf(m[1]) >= 0) {
+                            p.season = Number(m[2]);
+                            p.score = Math.max(p.score, 100);
+                            return true;
+                          }
+                          return false;
+                        });
+                      });
+                    }
+                    list = Array.from(found.values()).filter(function (p) {
+                      return p.score >= 50;
+                    });
+                    best = list.reduce(function (m, p) {
+                      return Math.max(m, p.score);
+                    }, 0);
+                    list = list.filter(function (p) {
+                      return p.score === best;
+                    });
+                    y = Number(year) || 0;
+                    if (!(y || list.length > 1)) {
+                      _context9.n = 12;
+                      break;
+                    }
+                    _context9.n = 11;
+                    return Promise.all(list.slice(0, 8).map(function () {
+                      var _ref6 = _asyncToGenerator(_regenerator().m(function _callee7(p) {
+                        var meta, _t9, _t0;
+                        return _regenerator().w(function (_context7) {
+                          while (1) switch (_context7.p = _context7.n) {
+                            case 0:
+                              _context7.p = 0;
+                              _t9 = parse;
+                              _context7.n = 1;
+                              return pageHtml(p.url);
+                            case 1:
+                              meta = _t9.pageMeta.call(_t9, _context7.v, p.url);
+                              p.type = meta.type;
+                              if (meta.year) p.year = meta.year;
+                              _context7.n = 3;
+                              break;
+                            case 2:
+                              _context7.p = 2;
+                              _t0 = _context7.v;
+                              p.type = parse.pageMeta('', p.url).type;
+                            case 3:
+                              return _context7.a(2);
+                          }
+                        }, _callee7, null, [[0, 2]]);
+                      }));
+                      return function (_x14) {
+                        return _ref6.apply(this, arguments);
+                      };
+                    }()));
+                  case 11:
                     list.slice(8).forEach(function (p) {
                       p.type = parse.pageMeta('', p.url).type;
                     });
@@ -1051,7 +1162,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                       }
                       return true;
                     });
-                  case 13:
+                  case 12:
                     seen = {};
                     list = list.filter(function (p) {
                       var key = parse.baseTitle(parse.altNames(p)[0]) + '|' + (p.season || 0) + '|' + (p.year || '');
@@ -1062,15 +1173,15 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                     list.sort(function (a, b) {
                       return (a.season || 0) - (b.season || 0) || (a.year || 0) - (b.year || 0);
                     });
-                    return _context7.a(2, list.map(function (_ref6) {
-                      var id = _ref6.id,
-                        url = _ref6.url,
-                        t = _ref6.title,
-                        o = _ref6.original,
-                        poster = _ref6.poster,
-                        season = _ref6.season,
-                        score = _ref6.score,
-                        py = _ref6.year;
+                    return _context9.a(2, list.map(function (_ref7) {
+                      var id = _ref7.id,
+                        url = _ref7.url,
+                        t = _ref7.title,
+                        o = _ref7.original,
+                        poster = _ref7.poster,
+                        season = _ref7.season,
+                        score = _ref7.score,
+                        py = _ref7.year;
                       return {
                         id: id,
                         url: url,
@@ -1083,7 +1194,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                       };
                     }));
                 }
-              }, _callee7, null, [[3, 5], [1, 8, 9, 10]]);
+              }, _callee8, null, [[1, 6, 7, 8]]);
             }));
             return _findPages.apply(this, arguments);
           }
@@ -1091,31 +1202,31 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
             return _stream.apply(this, arguments);
           }
           function _stream() {
-            _stream = _asyncToGenerator(_regenerator().m(function _callee9(url, referer) {
-              return _regenerator().w(function (_context9) {
-                while (1) switch (_context9.n) {
+            _stream = _asyncToGenerator(_regenerator().m(function _callee0(url, referer) {
+              return _regenerator().w(function (_context1) {
+                while (1) switch (_context1.n) {
                   case 0:
                     url = checkUrl(url, true);
-                    return _context9.a(2, cache.wrap('stream:' + url, _asyncToGenerator(_regenerator().m(function _callee8() {
+                    return _context1.a(2, cache.wrap('stream:' + url, _asyncToGenerator(_regenerator().m(function _callee9() {
                       var html, p, s;
-                      return _regenerator().w(function (_context8) {
-                        while (1) switch (_context8.n) {
+                      return _regenerator().w(function (_context0) {
+                        while (1) switch (_context0.n) {
                           case 0:
-                            _context8.n = 1;
+                            _context0.n = 1;
                             return fetchText(url, {
                               referer: referer || host + '/'
                             });
                           case 1:
-                            html = _context8.v;
+                            html = _context0.v;
                             p = parsePlayerjs(html);
                             if (!(!p && new URL(url).hostname === new URL(host).hostname)) {
-                              _context8.n = 2;
+                              _context0.n = 2;
                               break;
                             }
-                            return _context8.a(2, streamFromPage(url, html));
+                            return _context0.a(2, streamFromPage(url, html));
                           case 2:
                             if (p) {
-                              _context8.n = 3;
+                              _context0.n = 3;
                               break;
                             }
                             throw Object.assign(new Error('не вдалося знайти відео в плеєрі'), {
@@ -1123,10 +1234,10 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                             });
                           case 3:
                             if (!p.folders) {
-                              _context8.n = 4;
+                              _context0.n = 4;
                               break;
                             }
-                            return _context8.a(2, {
+                            return _context0.a(2, {
                               items: p.folders.map(function (f) {
                                 return {
                                   group: f.path.filter(function (x) {
@@ -1146,19 +1257,19 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                           case 4:
                             s = toStream(p.file, p.subtitle);
                             if (s) {
-                              _context8.n = 5;
+                              _context0.n = 5;
                               break;
                             }
                             throw Object.assign(new Error('порожнє посилання на відео'), {
                               status: 404
                             });
                           case 5:
-                            return _context8.a(2, s);
+                            return _context0.a(2, s);
                         }
-                      }, _callee8);
+                      }, _callee9);
                     }))));
                 }
-              }, _callee9);
+              }, _callee0);
             }));
             return _stream.apply(this, arguments);
           }
@@ -1166,55 +1277,55 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
             return _streamFromPage.apply(this, arguments);
           }
           function _streamFromPage() {
-            _streamFromPage = _asyncToGenerator(_regenerator().m(function _callee0(url, html) {
-              var players, errors, _iterator7, _step7, src, s, _t10, _t11;
-              return _regenerator().w(function (_context0) {
-                while (1) switch (_context0.p = _context0.n) {
+            _streamFromPage = _asyncToGenerator(_regenerator().m(function _callee1(url, html) {
+              var players, errors, _iterator7, _step7, src, s, _t12, _t13;
+              return _regenerator().w(function (_context10) {
+                while (1) switch (_context10.p = _context10.n) {
                   case 0:
                     players = parsePlayers(html, host, anyPlayer);
                     errors = [];
                     _iterator7 = _createForOfIteratorHelper(players.iframes.slice(0, 6));
-                    _context0.p = 1;
+                    _context10.p = 1;
                     _iterator7.s();
                   case 2:
                     if ((_step7 = _iterator7.n()).done) {
-                      _context0.n = 7;
+                      _context10.n = 7;
                       break;
                     }
                     src = _step7.value;
                     if (!(new URL(src).hostname === new URL(host).hostname)) {
-                      _context0.n = 3;
+                      _context10.n = 3;
                       break;
                     }
-                    return _context0.a(3, 6);
+                    return _context10.a(3, 6);
                   case 3:
-                    _context0.p = 3;
-                    _context0.n = 4;
+                    _context10.p = 3;
+                    _context10.n = 4;
                     return stream(src, url);
                   case 4:
-                    s = _context0.v;
-                    return _context0.a(2, s.items && s.items.length ? s.items[0].stream : s);
+                    s = _context10.v;
+                    return _context10.a(2, s.items && s.items.length ? s.items[0].stream : s);
                   case 5:
-                    _context0.p = 5;
-                    _t10 = _context0.v;
-                    errors.push(new URL(src).hostname + ': ' + _t10.message);
+                    _context10.p = 5;
+                    _t12 = _context10.v;
+                    errors.push(new URL(src).hostname + ': ' + _t12.message);
                   case 6:
-                    _context0.n = 2;
+                    _context10.n = 2;
                     break;
                   case 7:
-                    _context0.n = 9;
+                    _context10.n = 9;
                     break;
                   case 8:
-                    _context0.p = 8;
-                    _t11 = _context0.v;
-                    _iterator7.e(_t11);
+                    _context10.p = 8;
+                    _t13 = _context10.v;
+                    _iterator7.e(_t13);
                   case 9:
-                    _context0.p = 9;
+                    _context10.p = 9;
                     _iterator7.f();
-                    return _context0.f(9);
+                    return _context10.f(9);
                   case 10:
                     if (!/пройдіть\s+авторизацію|змініть\s+країну/i.test(parse.stripTags(html))) {
-                      _context0.n = 11;
+                      _context10.n = 11;
                       break;
                     }
                     throw Object.assign(new Error(name + ': для цієї серії сайт показує лише трейлер — серії він відкриває тільки з українського IP або після входу в акаунт'), {
@@ -1225,9 +1336,9 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                       status: 404
                     });
                   case 12:
-                    return _context0.a(2);
+                    return _context10.a(2);
                 }
-              }, _callee0, null, [[3, 5], [1, 8, 9, 10]]);
+              }, _callee1, null, [[3, 5], [1, 8, 9, 10]]);
             }));
             return _streamFromPage.apply(this, arguments);
           }
@@ -1235,39 +1346,39 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
             return _loadPage.apply(this, arguments);
           }
           function _loadPage() {
-            _loadPage = _asyncToGenerator(_regenerator().m(function _callee10(url) {
-              return _regenerator().w(function (_context11) {
-                while (1) switch (_context11.n) {
+            _loadPage = _asyncToGenerator(_regenerator().m(function _callee11(url) {
+              return _regenerator().w(function (_context13) {
+                while (1) switch (_context13.n) {
                   case 0:
                     url = checkUrl(url, false);
-                    return _context11.a(2, cache.wrap('page:' + url, _asyncToGenerator(_regenerator().m(function _callee1() {
-                      var html, page, season, players, items, playlistError, userHash, ajax, text, body, data, found, episodes, _iterator8, _step8, sp, seenEp, errors, inline, st, n, _iterator9, _step9, _loop2, onlyTrailer, diag, _t13, _t14, _t15, _t16, _t17, _t18;
-                      return _regenerator().w(function (_context10) {
-                        while (1) switch (_context10.p = _context10.n) {
+                    return _context13.a(2, cache.wrap('page:' + url, _asyncToGenerator(_regenerator().m(function _callee10() {
+                      var html, page, season, players, items, playlistError, userHash, ajax, text, body, data, found, episodes, _iterator8, _step8, sp, seenEp, errors, inline, st, n, _iterator9, _step9, _loop3, onlyTrailer, diag, _t15, _t16, _t17, _t18, _t19, _t20;
+                      return _regenerator().w(function (_context12) {
+                        while (1) switch (_context12.p = _context12.n) {
                           case 0:
-                            _context10.n = 1;
+                            _context12.n = 1;
                             return pageHtml(url);
                           case 1:
-                            html = _context10.v;
+                            html = _context12.v;
                             page = parse.parsePage(html, url, host);
                             season = seasonOf(page.title);
                             players = parsePlayers(html, host, anyPlayer);
                             items = [];
                             playlistError = '';
                             if (!players.playlist) {
-                              _context10.n = 5;
+                              _context12.n = 5;
                               break;
                             }
-                            _context10.p = 2;
+                            _context12.p = 2;
                             userHash = (html.match(/dle_login_hash\s*=\s*['"]([^'"]+)['"]/) || [])[1];
                             ajax = host + '/engine/ajax/playlists.php?news_id=' + encodeURIComponent(players.playlist.newsId) + '&xfield=' + encodeURIComponent(players.playlist.xfield) + (userHash ? '&user_hash=' + userHash : '') + '&time=' + Date.now();
-                            _context10.n = 3;
+                            _context12.n = 3;
                             return fetchText(ajax, {
                               xhr: true,
                               referer: url
                             });
                           case 3:
-                            text = _context10.v;
+                            text = _context12.v;
                             body = text;
                             try {
                               data = JSON.parse(text);
@@ -1285,64 +1396,64 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                                 url: ep.file
                               };
                             });
-                            _context10.n = 5;
+                            _context12.n = 5;
                             break;
                           case 4:
-                            _context10.p = 4;
-                            _t13 = _context10.v;
+                            _context12.p = 4;
+                            _t15 = _context12.v;
                             if (players.iframes.length) {
-                              _context10.n = 5;
+                              _context12.n = 5;
                               break;
                             }
-                            throw _t13;
+                            throw _t15;
                           case 5:
                             if (items.length) {
-                              _context10.n = 16;
+                              _context12.n = 16;
                               break;
                             }
                             found = parseEpisodeLinks(html, host, url);
                             episodes = found.episodes;
                             _iterator8 = _createForOfIteratorHelper(found.seasonPages.slice(0, 20));
-                            _context10.p = 6;
+                            _context12.p = 6;
                             _iterator8.s();
                           case 7:
                             if ((_step8 = _iterator8.n()).done) {
-                              _context10.n = 12;
+                              _context12.n = 12;
                               break;
                             }
                             sp = _step8.value;
                             if (!(sp === url)) {
-                              _context10.n = 8;
+                              _context12.n = 8;
                               break;
                             }
-                            return _context10.a(3, 11);
+                            return _context12.a(3, 11);
                           case 8:
-                            _context10.p = 8;
-                            _t14 = episodes;
-                            _t15 = parseEpisodeLinks;
-                            _context10.n = 9;
+                            _context12.p = 8;
+                            _t16 = episodes;
+                            _t17 = parseEpisodeLinks;
+                            _context12.n = 9;
                             return pageHtml(sp);
                           case 9:
-                            episodes = _t14.concat.call(_t14, _t15(_context10.v, host, url).episodes);
-                            _context10.n = 11;
+                            episodes = _t16.concat.call(_t16, _t17(_context12.v, host, url).episodes);
+                            _context12.n = 11;
                             break;
                           case 10:
-                            _context10.p = 10;
-                            _t16 = _context10.v;
+                            _context12.p = 10;
+                            _t18 = _context12.v;
                           case 11:
-                            _context10.n = 7;
+                            _context12.n = 7;
                             break;
                           case 12:
-                            _context10.n = 14;
+                            _context12.n = 14;
                             break;
                           case 13:
-                            _context10.p = 13;
-                            _t17 = _context10.v;
-                            _iterator8.e(_t17);
+                            _context12.p = 13;
+                            _t19 = _context12.v;
+                            _iterator8.e(_t19);
                           case 14:
-                            _context10.p = 14;
+                            _context12.p = 14;
                             _iterator8.f();
-                            return _context10.f(14);
+                            return _context12.f(14);
                           case 15:
                             seenEp = {};
                             episodes = episodes.filter(function (e) {
@@ -1392,24 +1503,24 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                               }
                             }
                             if (items.length) {
-                              _context10.n = 23;
+                              _context12.n = 23;
                               break;
                             }
                             n = 0;
                             _iterator9 = _createForOfIteratorHelper(players.iframes.slice(0, 6));
-                            _context10.p = 17;
-                            _loop2 = _regenerator().m(function _loop2() {
-                              var src, s, group, _t12;
-                              return _regenerator().w(function (_context1) {
-                                while (1) switch (_context1.p = _context1.n) {
+                            _context12.p = 17;
+                            _loop3 = _regenerator().m(function _loop3() {
+                              var src, s, group, _t14;
+                              return _regenerator().w(function (_context11) {
+                                while (1) switch (_context11.p = _context11.n) {
                                   case 0:
                                     src = _step9.value;
                                     n++;
-                                    _context1.p = 1;
-                                    _context1.n = 2;
+                                    _context11.p = 1;
+                                    _context11.n = 2;
                                     return stream(src, url);
                                   case 2:
-                                    s = _context1.v;
+                                    s = _context11.v;
                                     group = players.iframes.length > 1 ? name + ' · плеєр ' + n : name;
                                     if (s.items) items = items.concat(s.items.map(function (i) {
                                       return Object.assign({}, i, {
@@ -1423,48 +1534,48 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                                       episode: null,
                                       stream: s
                                     });
-                                    _context1.n = 4;
+                                    _context11.n = 4;
                                     break;
                                   case 3:
-                                    _context1.p = 3;
-                                    _t12 = _context1.v;
-                                    errors.push(new URL(src).hostname + ': ' + _t12.message);
+                                    _context11.p = 3;
+                                    _t14 = _context11.v;
+                                    errors.push(new URL(src).hostname + ': ' + _t14.message);
                                   case 4:
-                                    return _context1.a(2);
+                                    return _context11.a(2);
                                 }
-                              }, _loop2, null, [[1, 3]]);
+                              }, _loop3, null, [[1, 3]]);
                             });
                             _iterator9.s();
                           case 18:
                             if ((_step9 = _iterator9.n()).done) {
-                              _context10.n = 20;
+                              _context12.n = 20;
                               break;
                             }
-                            return _context10.d(_regeneratorValues(_loop2()), 19);
+                            return _context12.d(_regeneratorValues(_loop3()), 19);
                           case 19:
-                            _context10.n = 18;
+                            _context12.n = 18;
                             break;
                           case 20:
-                            _context10.n = 22;
+                            _context12.n = 22;
                             break;
                           case 21:
-                            _context10.p = 21;
-                            _t18 = _context10.v;
-                            _iterator9.e(_t18);
+                            _context12.p = 21;
+                            _t20 = _context12.v;
+                            _iterator9.e(_t20);
                           case 22:
-                            _context10.p = 22;
+                            _context12.p = 22;
                             _iterator9.f();
-                            return _context10.f(22);
+                            return _context12.f(22);
                           case 23:
                             if (items.length) {
-                              _context10.n = 26;
+                              _context12.n = 26;
                               break;
                             }
                             onlyTrailer = players.seen.length > 0 && players.seen.every(function (h) {
                               return /youtube|youtu\.be/i.test(h);
                             });
                             if (!/пройдіть\s+авторизацію|змініть\s+країну|увійдіть,?\s+щоб\s+дивитис|доступн\w*\s+лише\s+(для\s+)?зареєстрован/i.test(parse.stripTags(html))) {
-                              _context10.n = 24;
+                              _context12.n = 24;
                               break;
                             }
                             throw Object.assign(new Error(name + ': сайт показує лише трейлер — відео доступне тільки з українського IP або після входу в акаунт'), {
@@ -1472,7 +1583,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                             });
                           case 24:
                             if (!(onlyTrailer || /soon-tv|скоро\s+(на\s+сайті|вийде)|очікуєм/i.test(html))) {
-                              _context10.n = 25;
+                              _context12.n = 25;
                               break;
                             }
                             throw Object.assign(new Error(name + ': на сторінці поки лише трейлер — серії з озвучкою ще не вийшли'), {
@@ -1488,7 +1599,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                               status: 404
                             });
                           case 26:
-                            return _context10.a(2, {
+                            return _context12.a(2, {
                               url: url,
                               title: page.title,
                               original: page.original,
@@ -1498,10 +1609,10 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                               items: items
                             });
                         }
-                      }, _callee1, null, [[17, 21, 22, 23], [8, 10], [6, 13, 14, 15], [2, 4]]);
+                      }, _callee10, null, [[17, 21, 22, 23], [8, 10], [6, 13, 14, 15], [2, 4]]);
                     }))));
                 }
-              }, _callee10);
+              }, _callee11);
             }));
             return _loadPage.apply(this, arguments);
           }
@@ -1509,45 +1620,46 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
             return _route.apply(this, arguments);
           }
           function _route() {
-            _route = _asyncToGenerator(_regenerator().m(function _callee11(pathname, params) {
-              var serial, _t19;
-              return _regenerator().w(function (_context12) {
-                while (1) switch (_context12.n) {
+            _route = _asyncToGenerator(_regenerator().m(function _callee12(pathname, params) {
+              var serial, _t21;
+              return _regenerator().w(function (_context14) {
+                while (1) switch (_context14.n) {
                   case 0:
                     if (!(pathname === '/online/search')) {
-                      _context12.n = 2;
+                      _context14.n = 2;
                       break;
                     }
                     serial = params.get('serial');
-                    _context12.n = 1;
+                    _context14.n = 1;
                     return findPages({
                       title: params.get('title') || '',
                       original: params.get('original') || params.get('title_original') || '',
                       query: params.get('query') || params.get('Query') || '',
                       year: params.get('year') || null,
-                      serial: serial === null || serial === '' ? undefined : serial === '1' || serial === 'true'
+                      serial: serial === null || serial === '' ? undefined : serial === '1' || serial === 'true',
+                      titles: params.getAll ? params.getAll('alt') : []
                     });
                   case 1:
-                    _t19 = _context12.v;
-                    return _context12.a(2, {
-                      pages: _t19
+                    _t21 = _context14.v;
+                    return _context14.a(2, {
+                      pages: _t21
                     });
                   case 2:
                     if (!(pathname === '/online/page')) {
-                      _context12.n = 3;
+                      _context14.n = 3;
                       break;
                     }
-                    return _context12.a(2, loadPage(params.get('url') || ''));
+                    return _context14.a(2, loadPage(params.get('url') || ''));
                   case 3:
                     if (!(pathname === '/online/stream')) {
-                      _context12.n = 4;
+                      _context14.n = 4;
                       break;
                     }
-                    return _context12.a(2, stream(params.get('url') || '', params.get('referer') ? checkUrl(params.get('referer'), false) : ''));
+                    return _context14.a(2, stream(params.get('url') || '', params.get('referer') ? checkUrl(params.get('referer'), false) : ''));
                   case 4:
-                    return _context12.a(2, null);
+                    return _context14.a(2, null);
                 }
-              }, _callee11);
+              }, _callee12);
             }));
             return _route.apply(this, arguments);
           }
@@ -1618,22 +1730,22 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
         function simplify(q) {
           return q.split(/[:–—(]/)[0].replace(/[^0-9a-zA-ZÀ-ɏЀ-ӿ ]+/g, ' ').replace(/\s+/g, ' ').trim();
         }
-        function searchDle(_x14, _x15, _x16, _x17) {
+        function searchDle(_x15, _x16, _x17, _x18) {
           return _searchDle.apply(this, arguments);
         }
         function _searchDle() {
-          _searchDle = _asyncToGenerator(_regenerator().m(function _callee12(host, query, fetchText, source) {
-            var q, queries, short, errors, ok, _i, _queries, story, attempts, _i2, _attempts, _attempts$_i, method, url, body, list, err, _t20, _t21;
-            return _regenerator().w(function (_context13) {
-              while (1) switch (_context13.p = _context13.n) {
+          _searchDle = _asyncToGenerator(_regenerator().m(function _callee13(host, query, fetchText, source) {
+            var q, queries, short, errors, ok, _i, _queries, story, attempts, _i2, _attempts, _attempts$_i, method, url, body, list, err, _t22, _t23;
+            return _regenerator().w(function (_context15) {
+              while (1) switch (_context15.p = _context15.n) {
                 case 0:
                   source = source || {};
                   q = String(query || '').trim();
                   if (!(q.length < 2)) {
-                    _context13.n = 1;
+                    _context15.n = 1;
                     break;
                   }
-                  return _context13.a(2, []);
+                  return _context15.a(2, []);
                 case 1:
                   queries = [q];
                   short = simplify(q);
@@ -1643,7 +1755,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                   _i = 0, _queries = queries;
                 case 2:
                   if (!(_i < _queries.length)) {
-                    _context13.n = 10;
+                    _context15.n = 10;
                     break;
                   }
                   story = _queries[_i];
@@ -1651,52 +1763,52 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                   _i2 = 0, _attempts = attempts;
                 case 3:
                   if (!(_i2 < _attempts.length)) {
-                    _context13.n = 9;
+                    _context15.n = 9;
                     break;
                   }
                   _attempts$_i = _slicedToArray(_attempts[_i2], 3), method = _attempts$_i[0], url = _attempts$_i[1], body = _attempts$_i[2];
-                  _context13.p = 4;
-                  _t20 = parse;
-                  _context13.n = 5;
+                  _context15.p = 4;
+                  _t22 = parse;
+                  _context15.n = 5;
                   return fetchText(url, method === 'POST' ? {
                     method: method,
                     body: body
                   } : {});
                 case 5:
-                  list = _t20.parseList.call(_t20, _context13.v, host, source.linkRe);
+                  list = _t22.parseList.call(_t22, _context15.v, host, source.linkRe);
                   ok = true;
                   if (!list.length) {
-                    _context13.n = 6;
+                    _context15.n = 6;
                     break;
                   }
-                  return _context13.a(2, list);
+                  return _context15.a(2, list);
                 case 6:
-                  _context13.n = 8;
+                  _context15.n = 8;
                   break;
                 case 7:
-                  _context13.p = 7;
-                  _t21 = _context13.v;
-                  errors.push(method + ': ' + _t21.message);
+                  _context15.p = 7;
+                  _t23 = _context15.v;
+                  errors.push(method + ': ' + _t23.message);
                 case 8:
                   _i2++;
-                  _context13.n = 3;
+                  _context15.n = 3;
                   break;
                 case 9:
                   _i++;
-                  _context13.n = 2;
+                  _context15.n = 2;
                   break;
                 case 10:
                   if (ok) {
-                    _context13.n = 11;
+                    _context15.n = 11;
                     break;
                   }
                   err = new Error('пошук не вдався (' + errors.join('; ') + ')');
                   err.status = 502;
                   throw err;
                 case 11:
-                  return _context13.a(2, []);
+                  return _context15.a(2, []);
               }
-            }, _callee12, null, [[4, 7]]);
+            }, _callee13, null, [[4, 7]]);
           }));
           return _searchDle.apply(this, arguments);
         }
@@ -2026,7 +2138,8 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
             title: m.title,
             original: m.original,
             year: m.year,
-            serial: m.serial
+            serial: m.serial,
+            titles: m.titles || []
           }).then(function (pages) {
             return {
               source: source,
@@ -2207,7 +2320,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
           Navigator.move(step > 0 ? 'down' : 'up');
         };
         this.activity.loader(true);
-        Api.search(info, alive(function (pages) {
+        var searched = alive(function (pages) {
           var byId = {};
           (pages || []).forEach(function (p) {
             if (!byId[p.source]) {
@@ -2224,8 +2337,19 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
           });
           if (!sources.length) return message('Нічого не знайдено');
           pickDefault();
-        }), alive(function (err) {
+        });
+        var failed = alive(function (err) {
           message('UAKino: ' + err);
+        });
+        tmdbTitles(movie, alive(function (names) {
+          var query = {
+            title: names.uk || info.title,
+            original: info.original,
+            year: info.year,
+            serial: info.serial,
+            titles: [names.en].concat(names.alts, [info.title, names.ru]).filter(Boolean)
+          };
+          Api.search(query, searched, failed);
         }));
         return this.render();
       };
@@ -2913,6 +3037,61 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
         done('');
       });
     }
+    var RU = {
+      test: function test(t) {
+        t = String(t || '');
+        return /[ыэъё]/i.test(t) || /[а-я]/i.test(t) && !/[іїєґ]/i.test(t) && /[а-я](ая|ое|ые|ой|ого|ую|ться)(?![а-я])/i.test(t);
+      }
+    };
+    var titleCache = {};
+    function tmdbTitles(movie, done) {
+      var info = movieInfo(movie);
+      var fallback = {
+        uk: RU.test(info.title) ? '' : info.title,
+        en: '',
+        ru: RU.test(info.title) ? info.title : '',
+        alts: []
+      };
+      var id = movie.id;
+      var type = info.serial ? 'tv' : 'movie';
+      if (!id || !Lampa.TMDB || !Lampa.TMDB.api || !Lampa.TMDB.key || movie.source && movie.source !== 'tmdb') return done(fallback);
+      if (titleCache[type + id]) return done(titleCache[type + id]);
+      var finished = false;
+      var finish = function finish(r) {
+        if (finished) return;
+        finished = true;
+        done(r);
+      };
+      var net = new Lampa.Reguest();
+      net.timeout(7000);
+      net.silent(Lampa.TMDB.api(type + '/' + id + '?api_key=' + Lampa.TMDB.key() + '&language=uk-UA&append_to_response=translations,alternative_titles'), function (json) {
+        var r = {
+          uk: '',
+          en: '',
+          ru: '',
+          alts: []
+        };
+        var tr = json && json.translations && json.translations.translations || [];
+        tr.forEach(function (t) {
+          var name = t.data && (t.data.title || t.data.name);
+          if (!name) return;
+          if (t.iso_639_1 === 'uk' && !r.uk) r.uk = name;else if (t.iso_639_1 === 'en' && (!r.en || t.iso_3166_1 === 'US')) r.en = name;else if (t.iso_639_1 === 'ru' && !r.ru) r.ru = name;
+        });
+        if (!r.uk && json && (json.title || json.name) && !RU.test(json.title || json.name) && (json.title || json.name) !== (json.original_title || json.original_name)) r.uk = json.title || json.name;
+        var alt = json && json.alternative_titles && (json.alternative_titles.titles || json.alternative_titles.results) || [];
+        alt.forEach(function (a) {
+          var t = String(a.title || '').trim();
+          if (!t || CJK.test(t) || RU.test(t) || r.alts.indexOf(t) >= 0) return;
+          if (a.iso_3166_1 === 'UA' || /^(US|GB|JP|KR|CN)$/.test(a.iso_3166_1) && /^[\x20-\x7e\u00c0-\u024f\u2018-\u201d]+$/.test(t)) r.alts.push(t);
+        });
+        if (!r.uk && !RU.test(info.title)) r.uk = info.title;
+        r.alts = r.alts.slice(0, 6);
+        titleCache[type + id] = r;
+        finish(r);
+      }, function () {
+        finish(fallback);
+      });
+    }
     function openTorrents(movie) {
       patchParser();
       if (hasCredentials('toloka') && !cookieFor('toloka')) {
@@ -2921,18 +3100,21 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
         });
       }
       var info = movieInfo(movie);
-      var local = withoutBrackets(info.title);
-      englishTitle(movie, function (english) {
-        Lampa.Activity.push({
-          url: '',
-          title: TORRENTS_LABEL,
-          component: 'torrents',
-          search: english || local,
-          search_one: local,
-          search_two: english,
-          movie: movie,
-          page: 1,
-          uakino_ua: true
+      tmdbTitles(movie, function (names) {
+        var local = withoutBrackets(names.uk || info.title);
+        englishTitle(movie, function (english) {
+          if (names.en && (!english || CJK.test(info.original))) english = names.en;
+          Lampa.Activity.push({
+            url: '',
+            title: TORRENTS_LABEL,
+            component: 'torrents',
+            search: english || local,
+            search_one: local,
+            search_two: english,
+            movie: movie,
+            page: 1,
+            uakino_ua: true
+          });
         });
       });
     }
