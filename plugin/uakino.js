@@ -1332,22 +1332,22 @@
 
   // ======================= Інтеграція =======================
 
-  // Стиль Apple TV: темний фон, великий кадр у шапці, «таблетки», картки 16:9 зі збільшенням у фокусі.
+  // Стиль Apple TV: темний фон, компактна шапка з кадром (серії видно одразу, без гортання), «таблетки», картки 16:9 зі збільшенням у фокусі.
   // Без blur/backdrop-filter — щоб не гальмувало на ТВ.
   var CSS = '<style>' +
     '.uakino-online{background:#0b0d11}' +
     '.uakino-online__body{padding:0 2.2em 2em}' +
-    '.uakino-online__head{position:relative;display:flex;align-items:flex-end;min-height:19em;margin:0 -2.2em 1.6em;padding:4em 2.2em 1.8em;overflow:hidden}' +
+    '.uakino-online__head{position:relative;display:flex;align-items:center;margin:0 -2.2em 1em;padding:1.4em 2.2em 1.1em;overflow:hidden}' +
     '.uakino-online__hero-bg{position:absolute;left:0;top:0;right:0;bottom:0;background-size:cover;background-position:center 25%;opacity:.6}' +
     '.uakino-online__hero-shade{position:absolute;left:0;top:0;right:0;bottom:0;background:linear-gradient(to top,#0b0d11 0%,rgba(11,13,17,.75) 40%,rgba(11,13,17,.1) 100%),linear-gradient(to right,rgba(11,13,17,.9) 0%,rgba(11,13,17,0) 65%)}' +
-    '.uakino-online__poster{position:relative;width:7.5em;height:11.25em;object-fit:cover;border-radius:.9em;margin-right:1.8em;box-shadow:0 1.2em 2.4em rgba(0,0,0,.55);flex-shrink:0}' +
-    '.uakino-online__head-text{position:relative;max-width:62%}' +
-    '.uakino-online__head-title{font-size:2.7em;font-weight:700;line-height:1.08;letter-spacing:-.01em}' +
-    '.uakino-online__head-sub{margin-top:.7em;font-size:1.05em;color:rgba(255,255,255,.75)}' +
+    '.uakino-online__poster{position:relative;width:4.4em;height:6.6em;object-fit:cover;border-radius:.6em;margin-right:1.3em;box-shadow:0 .8em 1.6em rgba(0,0,0,.55);flex-shrink:0}' +
+    '.uakino-online__head-text{position:relative;max-width:70%}' +
+    '.uakino-online__head-title{font-size:1.8em;font-weight:700;line-height:1.1;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+    '.uakino-online__head-sub{margin-top:.4em;font-size:.95em;color:rgba(255,255,255,.75)}' +
     '.uakino-online__badge{display:inline-block;margin-left:.6em;padding:.05em .45em;border:1px solid rgba(255,255,255,.7);border-radius:.3em;font-size:.8em;font-weight:700;color:#fff;vertical-align:.1em}' +
-    '.uakino-online__head-descr{margin-top:.8em;line-height:1.45;color:rgba(255,255,255,.68);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}' +
-    '.uakino-online__filters,.uakino-online__tabs{display:flex;flex-wrap:wrap;margin-bottom:.9em}' +
-    '.uakino-online__filter{padding:.7em 1.5em;margin:0 .8em .8em 0;border-radius:2em;background:rgba(255,255,255,.13);font-weight:500;transition:transform .15s,background-color .15s}' +
+    '.uakino-online__head-descr{margin-top:.45em;font-size:.88em;line-height:1.4;color:rgba(255,255,255,.65);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}' +
+    '.uakino-online__filters,.uakino-online__tabs{display:flex;flex-wrap:wrap;margin-bottom:.4em}' +
+    '.uakino-online__filter{padding:.6em 1.4em;margin:0 .7em .6em 0;border-radius:2em;background:rgba(255,255,255,.13);font-weight:500;transition:transform .15s,background-color .15s}' +
     '.uakino-online__tabs .uakino-online__filter{padding:.55em 1.3em;background:rgba(255,255,255,.06)}' +
     '.uakino-online__ranges .uakino-online__filter{padding:.45em 1.1em;font-size:.9em}' +
     '.uakino-online__filter--active{background:rgba(255,255,255,.3) !important;font-weight:600}' +
