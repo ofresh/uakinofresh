@@ -996,6 +996,8 @@
       decorateEpisodes(list);
       // Відкриваємо на останній переглянутій серії (або на щойно знайденій за номером).
       if (lastWatched && !keepFocus) last = lastWatched;
+      // Інакше одразу на картці: фільм — на ньому, серіал — на першій серії (а не на кнопці «Джерело»).
+      else if (!keepFocus && !jumpEl) last = list.find('.uakino-online__item')[0] || null;
       if (jumpEl) last = jumpEl;
       jumpTo = null;
 
@@ -1354,7 +1356,7 @@
     '.uakino-online__ranges .uakino-online__filter{padding:.45em 1.1em;font-size:.9em}' +
     '.uakino-online__filter--active{background:rgba(255,255,255,.3) !important;font-weight:600}' +
     '.uakino-online__filter.focus{background:#fff !important;color:#0b0d11;transform:scale(1.06)}' +
-    '.uakino-online__list{display:flex;flex-wrap:wrap;margin:.4em -.7em 0}' +
+    '.uakino-online__list{display:flex;flex-wrap:wrap;margin:1em -.7em 0}' +
     '.uakino-online__item{position:relative;width:calc(25% - 1.4em);margin:0 .7em 1.8em;transition:transform .2s}' +
     // Фільм — картка трохи більша за серію, але вся видна на екрані ТВ без гортання.
     '.uakino-online__list--single .uakino-online__item{width:calc(30% - 1.4em)}' +
@@ -1371,7 +1373,8 @@
     '.uakino-online__info{margin-top:.25em;font-size:.85em;color:rgba(255,255,255,.55);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
     '.uakino-online__item--viewed .uakino-online__title{color:rgba(255,255,255,.7)}' +
     '.uakino-online__item.focus{transform:scale(1.08);z-index:2}' +
-    '.uakino-online__item.focus .uakino-online__thumb{box-shadow:0 0 0 .22em #fff,0 1.4em 2.8em rgba(0,0,0,.65)}' +
+    '.uakino-online__item.focus .uakino-online__thumb{box-shadow:0 0 0 .3em #fff,0 1.4em 2.8em rgba(0,0,0,.65)}' +
+    '.uakino-online__item.focus .uakino-online__title{color:#fff}' +
     '.uakino-online__item.focus .uakino-online__thumb--fallback{filter:brightness(.75)}' +
     '.uakino-online__empty{padding:2.5em 0;text-align:center;color:rgba(255,255,255,.6)}' +
     '</style>';
