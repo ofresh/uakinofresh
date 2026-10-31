@@ -971,6 +971,8 @@
           '<div class="uakino-online__title"></div><div class="uakino-online__info"></div></div>');
         if (backdrop) el.find('.uakino-online__thumb').css('background-image', 'url("' + backdrop + '")').addClass('uakino-online__thumb--fallback');
         if (item.episode) el.find('.uakino-online__num').text(item.episode);
+        // Фільм (без номера серії): кнопка ▶ посередині кадру — одразу видно, що це «дивитися».
+        else el.find('.uakino-online__thumb').removeClass('uakino-online__thumb--fallback').append($('<div class="uakino-online__play"></div>').html(ICON_PLAY));
         el.find('.uakino-online__title').text(item.title || data.title);
         var meta = [];
         if (item.season || data.season) meta.push('Сезон ' + (item.season || data.season));
@@ -1354,7 +1356,11 @@
     '.uakino-online__filter.focus{background:#fff !important;color:#0b0d11;transform:scale(1.06)}' +
     '.uakino-online__list{display:flex;flex-wrap:wrap;margin:.4em -.7em 0}' +
     '.uakino-online__item{position:relative;width:calc(25% - 1.4em);margin:0 .7em 1.8em;transition:transform .2s}' +
-    '.uakino-online__list--single .uakino-online__item{width:calc(45% - 1.4em)}' +
+    // Фільм — картка трохи більша за серію, але вся видна на екрані ТВ без гортання.
+    '.uakino-online__list--single .uakino-online__item{width:calc(30% - 1.4em)}' +
+    '.uakino-online__play{position:absolute;left:50%;top:50%;width:3.2em;height:3.2em;margin:-1.6em 0 0 -1.6em;color:#fff;opacity:.9;filter:drop-shadow(0 .2em .6em rgba(0,0,0,.6))}' +
+    '.uakino-online__play svg{width:100%;height:100%}' +
+    '.uakino-online__item.focus .uakino-online__play{opacity:1}' +
     '.uakino-online__thumb{position:relative;padding-top:56.25%;border-radius:1em;background:#1b1f27 center/cover no-repeat;overflow:hidden;box-shadow:0 .6em 1.4em rgba(0,0,0,.4)}' +
     '.uakino-online__thumb--fallback{filter:brightness(.55)}' +
     '.uakino-online__thumb-shade{position:absolute;left:0;right:0;bottom:0;height:55%;background:linear-gradient(to top,rgba(0,0,0,.75),rgba(0,0,0,0))}' +
