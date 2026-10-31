@@ -79,6 +79,53 @@ if (!String.fromCodePoint) String.fromCodePoint = function (code) {
   code -= 0x10000;
   return String.fromCharCode(0xd800 + (code >> 10), 0xdc00 + (code & 0x3ff));
 };
+// Старий webOS (LG через Media Station X): Map без values()/keys() — «found.values() is not a function».
+// Тоді плагін бере власний Map (лише для себе — глобальний Map Lampa не чіпаємо).
+var Map = (function (Native) {
+  try {
+    var t = new Native();
+    t.set('a', 1);
+    if (typeof t.values === 'function' && typeof t.keys === 'function' && typeof t.forEach === 'function' && Array.from(t.values())[0] === 1) return Native;
+  } catch (e) { /* свій */ }
+  function list(arr) {
+    var i = 0;
+    arr.next = function () { return i < arr.length ? { value: arr[i++], done: false } : { value: undefined, done: true }; };
+    return arr;
+  }
+  function M() { this._k = []; this._v = []; this.size = 0; }
+  M.prototype.indexOf = function (k) { for (var i = 0; i < this._k.length; i++) if (this._k[i] === k) return i; return -1; };
+  M.prototype.has = function (k) { return this.indexOf(k) >= 0; };
+  M.prototype.get = function (k) { var i = this.indexOf(k); return i >= 0 ? this._v[i] : undefined; };
+  M.prototype.set = function (k, v) { var i = this.indexOf(k); if (i >= 0) this._v[i] = v; else { this._k.push(k); this._v.push(v); this.size++; } return this; };
+  M.prototype['delete'] = function (k) { var i = this.indexOf(k); if (i < 0) return false; this._k.splice(i, 1); this._v.splice(i, 1); this.size--; return true; };
+  M.prototype.clear = function () { this._k = []; this._v = []; this.size = 0; };
+  M.prototype.keys = function () { return list(this._k.slice()); };
+  M.prototype.values = function () { return list(this._v.slice()); };
+  M.prototype.entries = function () { var o = []; for (var i = 0; i < this._k.length; i++) o.push([this._k[i], this._v[i]]); return list(o); };
+  M.prototype.forEach = function (fn, self) { var k = this._k.slice(), v = this._v.slice(); for (var i = 0; i < k.length; i++) fn.call(self, v[i], k[i], this); };
+  return M;
+})(typeof Map === 'function' ? Map : function () { throw new Error('no Map'); });
+// Так само URL: старі WebKit його не мають. Плагіну потрібні лише абсолютні http(s)-адреси.
+var URL = (function (Native) {
+  try { if (new Native('https://a.b:81/c?d#e').hostname === 'a.b') return Native; } catch (e) { /* свій */ }
+  function U(href) {
+    var m = String(href).match(/^([a-z][a-z0-9+.-]*:)\\/\\/([^\\/?#]*)([^?#]*)(\\?[^#]*)?(#.*)?$/i);
+    if (!m || !m[2]) throw new TypeError('Invalid URL: ' + href);
+    this.protocol = m[1].toLowerCase();
+    this.host = m[2];
+    this.pathname = m[3] || '/';
+    this.search = m[4] && m[4] !== '?' ? m[4] : '';
+    this.hash = m[5] && m[5] !== '#' ? m[5] : '';
+  }
+  Object.defineProperty(U.prototype, 'host', {
+    get: function () { return this.hostname + (this.port ? ':' + this.port : ''); },
+    set: function (h) { var p = String(h).split(':'); this.hostname = p[0].toLowerCase(); this.port = p[1] || ''; }
+  });
+  Object.defineProperty(U.prototype, 'origin', { get: function () { return this.protocol + '//' + this.host; } });
+  Object.defineProperty(U.prototype, 'href', { get: function () { return this.toString(); } });
+  U.prototype.toString = function () { return this.protocol + '//' + this.host + (this.pathname || '/') + this.search + this.hash; };
+  return U;
+})(typeof URL === 'function' ? URL : function () { throw new Error('no URL'); });
 `;
 
 const modern = '(function () {\n' + POLYFILLS +
