@@ -208,6 +208,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                     return searchDle(host, q, fetchText, source);
                   case 3:
                     list = _context.v;
+                    if (searches.size >= 30) searches.delete(searches.keys().next().value);
                     searches.set(key, list);
                     return _context.a(2, list);
                 }
@@ -1000,7 +1001,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                       return fn();
                     case 2:
                       v = _context4.v;
-                      if (this.map.size > 500) this.map.delete(this.map.keys().next().value);
+                      if (this.map.size > 100) this.map.delete(this.map.keys().next().value);
                       this.map.set(key, {
                         v: v,
                         exp: Date.now() + this.ttl
@@ -1062,7 +1063,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
                     return fetchText(url, {});
                   case 2:
                     html = _context5.v;
-                    if (htmlCache.size > 50) htmlCache.delete(htmlCache.keys().next().value);
+                    if (htmlCache.size >= 8) htmlCache.delete(htmlCache.keys().next().value);
                     htmlCache.set(url, html);
                     return _context5.a(2, html);
                 }
@@ -2259,6 +2260,26 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
         });
       });
     }
+    function limited(list, n, fn) {
+      return new Promise(function (resolve) {
+        var out = new Array(list.length);
+        var next = 0;
+        var done = 0;
+        if (!list.length) return resolve(out);
+        function run() {
+          if (next >= list.length) return;
+          var i = next++;
+          fn(list[i]).then(function (v) {
+            out[i] = v;
+          }, function (e) {
+            out[i] = e;
+          }).then(function () {
+            if (++done === list.length) resolve(out);else run();
+          });
+        }
+        for (var k = 0; k < Math.min(n, list.length); k++) run();
+      });
+    }
     var Api = {
       search: function search(m, ok, fail) {
         var self = this;
@@ -2270,7 +2291,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
         }
         var list = enabledSources();
         if (!list.length) return fail('усі сайти вимкнено в налаштуваннях');
-        Promise.all(list.map(function (source) {
+        limited(list, 3, function (source) {
           return clientFor(source.id).online.findPages({
             title: m.title,
             original: m.original,
@@ -2289,7 +2310,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
               error: e && e.message || String(e)
             };
           });
-        })).then(function (results) {
+        }).then(function (results) {
           var pages = [];
           var problems = [];
           results.forEach(function (r) {
@@ -2794,7 +2815,7 @@ function _asyncToGenerator(n) { return function () { var t = this, e = arguments
         var shown = src.pages[currentTab().page] || src.pages[0];
         var head = $('<div class="uakino-online__head"><div class="uakino-online__hero-bg"></div><div class="uakino-online__hero-shade"></div>' + '<div class="uakino-online__head-text"><div class="uakino-online__head-title"></div><div class="uakino-online__head-sub"></div><div class="uakino-online__head-descr"></div></div></div>');
         var poster = data && data.poster || shown.poster || src.pages[0].poster;
-        var backdrop = tmdbImage(movie.backdrop_path, 'w1280') || tmdbImage(movie.poster_path, 'w780') || poster;
+        var backdrop = tmdbImage(movie.backdrop_path, 'w780') || tmdbImage(movie.poster_path, 'w780') || poster;
         if (backdrop) head.find('.uakino-online__hero-bg').css('background-image', 'url("' + backdrop + '")');
         if (poster) head.find('.uakino-online__head-text').before($('<img class="uakino-online__poster">').attr('src', poster));
         var names = String(shown.title || data && data.title || '').split(/\s+\/\s+/);

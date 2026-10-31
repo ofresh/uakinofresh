@@ -278,6 +278,25 @@
     });
   }
 
+  // Як Promise.all(list.map(fn)), але одночасно виконується не більше n завдань.
+  function limited(list, n, fn) {
+    return new Promise(function (resolve) {
+      var out = new Array(list.length);
+      var next = 0;
+      var done = 0;
+      if (!list.length) return resolve(out);
+      function run() {
+        if (next >= list.length) return;
+        var i = next++;
+        fn(list[i]).then(function (v) { out[i] = v; }, function (e) { out[i] = e; }).then(function () {
+          if (++done === list.length) resolve(out);
+          else run();
+        });
+      }
+      for (var k = 0; k < Math.min(n, list.length); k++) run();
+    });
+  }
+
   var Api = {
     // Шукає одночасно на всіх увімкнених сайтах; помилка — лише якщо ніде нічого не знайдено.
     search: function (m, ok, fail) {
@@ -288,13 +307,15 @@
       }
       var list = enabledSources();
       if (!list.length) return fail('усі сайти вимкнено в налаштуваннях');
-      Promise.all(list.map(function (source) {
+      // Не більше трьох сайтів одночасно: на старих ТВ (LG webOS) шість паралельних пошуків
+      // з десятками сторінок забирають забагато пам'яті, і система перезапускає Lampa.
+      limited(list, 3, function (source) {
         return clientFor(source.id).online.findPages({ title: m.title, original: m.original, year: m.year, serial: m.serial, titles: m.titles || [] }).then(function (pages) {
           return { source: source, pages: pages };
         }, function (e) {
           return { source: source, pages: [], error: (e && e.message) || String(e) };
         });
-      })).then(function (results) {
+      }).then(function (results) {
         var pages = [];
         var problems = [];
         results.forEach(function (r) {
@@ -815,7 +836,7 @@
       var head = $('<div class="uakino-online__head"><div class="uakino-online__hero-bg"></div><div class="uakino-online__hero-shade"></div>' +
         '<div class="uakino-online__head-text"><div class="uakino-online__head-title"></div><div class="uakino-online__head-sub"></div><div class="uakino-online__head-descr"></div></div></div>');
       var poster = (data && data.poster) || shown.poster || src.pages[0].poster;
-      var backdrop = tmdbImage(movie.backdrop_path, 'w1280') || tmdbImage(movie.poster_path, 'w780') || poster;
+      var backdrop = tmdbImage(movie.backdrop_path, 'w780') || tmdbImage(movie.poster_path, 'w780') || poster;
       if (backdrop) head.find('.uakino-online__hero-bg').css('background-image', 'url("' + backdrop + '")');
       if (poster) head.find('.uakino-online__head-text').before($('<img class="uakino-online__poster">').attr('src', poster));
       // Назва з картки пошуку: «Укр / Альтернативна / Original» → заголовок + решта підписом.
